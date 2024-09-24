@@ -43,7 +43,7 @@ def sample_frames(qpos: np.ndarray, action: np.ndarray, num_samples: int) -> lis
     ones_indices = np.where(arr == 1)[0]
 
     if len(ones_indices) == 0:
-        return random.choices(range(len(arr)), k=num_samples)
+        return random.choices([i for i in range(last_frame)], k=num_samples)
 
     # When gripper first closes
     last_zero_in_first_section = ones_indices[0] - 1
