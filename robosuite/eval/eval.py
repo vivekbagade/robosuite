@@ -28,8 +28,8 @@ def load_hdf5(dataset_path: str) -> tuple:
 
 def find_stopping_point(data: np.ndarray) -> int:
     steps, _ = data.shape
-    for step in range(steps):
-        if np.all(data[step:, :] == 0):
+    for step in range(steps, -1, -1):
+        if np.any(data[step:, :] != 0):
             return step
 
     return data.shape[0]
@@ -39,18 +39,22 @@ def sample_frames(qpos: np.ndarray, action: np.ndarray, num_samples: int) -> lis
     arr = qpos[:, 7]
     num_choices = num_samples // 3 - 1
 
+    # When gripper is closed
+    ones_indices = np.where(arr == 1)[0]
+
+    if len(ones_indices) == 0:
+        return random.choices(range(len(arr)), k=num_samples)
+
     # When gripper first closes
-    first_one_index = np.argmax(arr == 1)
-    last_zero_in_first_section = first_one_index - 1
+    last_zero_in_first_section = ones_indices[0] - 1
 
     # Before gripper first closes
     first_random_indices = random.choices([i for i in range(last_zero_in_first_section)], k=num_choices)
 
     # Sample when gripper remains closed
-    ones_indices = np.where(arr == 1)[0]
     random_one_index = random.choices(ones_indices, k=num_choices)
 
-    last_one_index = np.max(ones_indices)
+    last_one_index = ones_indices[-1]
     first_zero_in_last_section = np.argmax(arr[last_one_index + 1 :] == 0) + last_one_index + 1
 
     # Sample after gripper opens
@@ -68,6 +72,7 @@ def sample_frames(qpos: np.ndarray, action: np.ndarray, num_samples: int) -> lis
 
 
 def plot_steps(steps: list, camera: str, image_dict: dict, out_img_path: str) -> None:
+    # Plot sample frames
     cols = 3
     rows = len(steps) // cols
     _, axes = plt.subplots(rows, cols, figsize=(8, 8))
@@ -111,4 +116,4 @@ data_file = "./episode_1.hdf5"
 qpos, qvel, action, image_dict = load_hdf5(dataset_path=data_file)
 steps = sample_frames(qpos=qpos, action=action, num_samples=9)
 plot_steps(steps=steps, camera="frontview", image_dict=image_dict, out_img_path=out_img_path)
-description = classify_episode(out_img_path)
+print(classify_episode(out_img_path))
