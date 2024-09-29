@@ -103,7 +103,7 @@ def rollout():
     recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"], args.environment)
 
     def handler(arg1, arg2):
-        recorder.save_to_cloud()
+        recorder.save_to_cloud(downsample_factor=4)
         print("Exiting..")
         sys.exit(0)
 
