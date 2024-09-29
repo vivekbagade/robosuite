@@ -1,4 +1,7 @@
 import os
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
 # fallback to cpu if mps is not available for specific operations
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = "1"
 import torch
@@ -9,13 +12,17 @@ DATA_DIR = 'robosuite/data/'
 
 # checkpoint directory
 CHECKPOINT_DIR = '/home/vivekbagade/dev/src/vivekbagade/robosuite/checkpoints/'
+CHECKPOINT_DIR = '/Users/francesliu/dev/robotrain/robosuite/act/checkpoints/'
 
 device = ''
 if torch.cuda.is_available():
     device = 'cuda'
+elif torch.backends.mps.is_available():
+    device = 'mps'
 else:
-    sys.exit('No GPU found')
-#if torch.backends.mps.is_available(): device = 'mps'
+    device = 'cpu'
+    # sys.exit('No GPU found')
+
 os.environ['DEVICE'] = device
 
 
@@ -28,7 +35,7 @@ TASK_CONFIG = {
     'cam_width': 256,
     'cam_height': 256,
     'camera_names': ["robot0_eye_in_hand", "frontview", "birdview"],
-    'camera_port': 0
+    'camera_port': 0,
 }
 
 
@@ -49,7 +56,7 @@ POLICY_CONFIG = {
     'policy_class': 'ACT',
     'temporal_agg': False,
     'state_dim': 8,
-    'action_dim': 7
+    'action_dim': 7,
 }
 
 # training config
@@ -59,5 +66,5 @@ TRAIN_CONFIG = {
     'batch_size_val': 8,
     'batch_size_train': 8,
     'eval_ckpt_name': 'policy_last.ckpt',
-    'checkpoint_dir': CHECKPOINT_DIR
+    'checkpoint_dir': CHECKPOINT_DIR,
 }

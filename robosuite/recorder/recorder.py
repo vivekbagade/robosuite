@@ -2,11 +2,13 @@ import h5py
 import time
 import numpy as np
 import os
+from google.cloud import storage
 
 
 cam_height = 256
 cam_width = 256
 episode_len = 800
+BUCKET_NAME = 'robotrain-episodes-central1'
 
 class Recorder:
     def __init__(self, cameras, task) -> None:
@@ -31,7 +33,7 @@ class Recorder:
         for cam_name in self.cameras:
             self.data_dict[f'/observations/images/{cam_name}'].append(obs[cam_name + "_image"])
 
-    def save(self) -> None:
+    def save(self) -> str:
         max_timesteps = len(self.data_dict['/observations/qpos'])
         if max_timesteps < 10:
             print('Not enough steps to save episode')
@@ -40,7 +42,7 @@ class Recorder:
             print('recording longer than expected, skipping save')
             return
 
-        # padding to episode_len        
+        # padding to episode_len
         pad_len = episode_len - max_timesteps
         self.data_dict['/observations/qpos'] = np.pad(self.data_dict['/observations/qpos'], ((0, pad_len), (0, 0)), mode='constant')
         self.data_dict['/observations/qvel'] = np.pad(self.data_dict['/observations/qvel'], ((0, pad_len), (0, 0)), mode='constant')
@@ -67,6 +69,22 @@ class Recorder:
             qvel = obs.create_dataset('qvel', (episode_len, 8))
             # image = obs.create_dataset("image", (episode_len, 240, 320, 3), dtype='uint8', chunks=(1, 240, 320, 3))
             action = root.create_dataset('action', (episode_len, 7))
-            
+
             for name, array in self.data_dict.items():
                 root[name][...] = array
+
+        return dataset_path + '.hdf5'
+
+    def save_to_cloud(self) -> None:
+        source_file = self.save()
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(BUCKET_NAME)
+
+        dest_file = source_file.split('/')[-1]
+        blob = bucket.blob(dest_file)
+
+        print(f'Uploading file {source_file} to {dest_file} in bucket {BUCKET_NAME}...')
+        blob.upload_from_filename(source_file)
+
+        print(f'File {source_file} uploaded to {dest_file} in bucket {BUCKET_NAME}.')
+        return blob.public_url
