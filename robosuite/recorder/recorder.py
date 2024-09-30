@@ -2,11 +2,13 @@ import h5py
 import time
 import numpy as np
 import os
+from google.cloud import storage
 
 
 cam_height = 256
 cam_width = 256
 episode_len = 800
+BUCKET_NAME = 'robotrain-episodes-central1'
 
 class Recorder:
     def __init__(self, cameras, task) -> None:
@@ -31,7 +33,7 @@ class Recorder:
         for cam_name in self.cameras:
             self.data_dict[f'/observations/images/{cam_name}'].append(obs[cam_name + "_image"])
 
-    def save(self) -> None:
+    def save(self, downsample_factor=1) -> str:
         max_timesteps = len(self.data_dict['/observations/qpos'])
         if max_timesteps < 10:
             print('Not enough steps to save episode')
@@ -39,9 +41,19 @@ class Recorder:
         if max_timesteps > episode_len:
             print('recording longer than expected, skipping save')
             return
+        
+        if downsample_factor > 1:
+            selected_indices = np.arange(0, max_timesteps, downsample_factor)
+            max_timesteps = len(selected_indices)
+            self.data_dict['/observations/qpos'] = [d for ind, d in enumerate(self.data_dict['/observations/qpos']) if ind in selected_indices]
+            self.data_dict['/observations/qvel'] = [d for ind, d in enumerate(self.data_dict['/observations/qvel']) if ind in selected_indices]
+            self.data_dict['/action'] = [d for ind, d in enumerate(self.data_dict['/action']) if ind in selected_indices]
+            for cam_name in self.cameras:
+                self.data_dict[f'/observations/images/{cam_name}'] = [d for ind, d in enumerate(self.data_dict[f'/observations/images/{cam_name}']) if ind in selected_indices]
 
-        # padding to episode_len        
-        pad_len = episode_len - max_timesteps
+
+        # padding to episode_len
+        pad_len = episode_len // downsample_factor  - max_timesteps
         self.data_dict['/observations/qpos'] = np.pad(self.data_dict['/observations/qpos'], ((0, pad_len), (0, 0)), mode='constant')
         self.data_dict['/observations/qvel'] = np.pad(self.data_dict['/observations/qvel'], ((0, pad_len), (0, 0)), mode='constant')
         self.data_dict['/action'] = np.pad(self.data_dict['/action'], ((0, pad_len), (0, 0)), mode='constant')
@@ -61,12 +73,28 @@ class Recorder:
             obs = root.create_group('observations')
             image = obs.create_group('images')
             for cam_name in self.cameras:
-                _ = image.create_dataset(cam_name, (episode_len, cam_height, cam_width, 3), dtype='uint8',
+                _ = image.create_dataset(cam_name, (episode_len // downsample_factor, cam_height, cam_width, 3), dtype='uint8',
                                         chunks=(1, cam_height, cam_width, 3), )
-            qpos = obs.create_dataset('qpos', (episode_len, 8))
-            qvel = obs.create_dataset('qvel', (episode_len, 8))
+            qpos = obs.create_dataset('qpos', (episode_len // downsample_factor, 8))
+            qvel = obs.create_dataset('qvel', (episode_len // downsample_factor, 8))
             # image = obs.create_dataset("image", (episode_len, 240, 320, 3), dtype='uint8', chunks=(1, 240, 320, 3))
-            action = root.create_dataset('action', (episode_len, 7))
-            
+            action = root.create_dataset('action', (episode_len // downsample_factor, 7))
+
             for name, array in self.data_dict.items():
                 root[name][...] = array
+
+        return dataset_path + '.hdf5'
+
+    def save_to_cloud(self, downsample_factor=1) -> None:
+        source_file = self.save(downsample_factor=downsample_factor)
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(BUCKET_NAME)
+
+        dest_file = source_file.split('/')[-1]
+        blob = bucket.blob(dest_file)
+
+        print(f'Uploading file {source_file} to {dest_file} in bucket {BUCKET_NAME}...')
+        blob.upload_from_filename(source_file)
+
+        print(f'File {source_file} uploaded to {dest_file} in bucket {BUCKET_NAME}.')
+        return blob.public_url

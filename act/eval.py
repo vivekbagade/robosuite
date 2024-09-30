@@ -2,7 +2,7 @@
 
 """
 import pickle
-from config.config import POLICY_CONFIG, TRAIN_CONFIG, CHECKPOINT_DIR, device # must import first
+from config.config import POLICY_CONFIG, TRAIN_CONFIG, CHECKPOINT_DIR, device  # must import first
 import argparse
 import numpy as np
 import robosuite as suite
@@ -11,11 +11,14 @@ from robosuite.wrappers import VisualizationWrapper
 from policy import ACTPolicy
 import torch
 import os
+from robosuite.recorder import Recorder
+import signal
+import sys
 
 from utils.utils import get_image
 
-if __name__ == "__main__":
 
+def rollout():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", type=str, default="Lift")
     parser.add_argument("--robots", nargs="+", type=str, default="Panda", help="Which robot(s) to use in the env")
@@ -29,6 +32,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="keyboard")
     parser.add_argument("--pos-sensitivity", type=float, default=1.0, help="How much to scale position user inputs")
     parser.add_argument("--rot-sensitivity", type=float, default=1.0, help="How much to scale rotation user inputs")
+    parser.add_argument("--save-to-cloud", type=float, default=1.0, help="Save recorded episode to cloud")
     args = parser.parse_args()
 
     # Import controller config for EE IK or OSC (pos/ori)
@@ -93,15 +97,29 @@ if __name__ == "__main__":
     camera_names = POLICY_CONFIG['camera_names']
     query_frequency = POLICY_CONFIG['num_queries']
 
-        # Reset the environment
+    # Reset the environment
     obs = env.reset()
     all_actions = None
+
+    recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"], args.environment)
+
+    def handler(arg1, arg2):
+        if args.save_to_cloud:
+            recorder.save_to_cloud(downsample_factor=4)
+        else:
+            recorder.save(downsample_factor=4)
+        print("Exiting..")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handler)
 
     for t in range(TRAIN_CONFIG['num_epochs']):
         qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
         grasp = [0]
         if 'grasp' in obs:
             grasp = [obs['grasp']]
+        else:
+            obs['grasp'] = [0]
         qpos = np.concatenate((qpos, grasp))
         qpos = pre_process(qpos)
         qpos = torch.from_numpy(qpos).float().to(device).unsqueeze(0)
@@ -119,8 +137,13 @@ if __name__ == "__main__":
             print('No action')
             break
 
+        recorder.record(obs, cur_action)
         obs, reward, done, info = env.step(cur_action)
         
         
         env.render()
     print("End of episode")
+
+
+if __name__ == "__main__":
+    rollout()

@@ -13,3 +13,4 @@ extend_skip = [
     "robosuite/models/assets",
     "robosuite/controllers/config",
 ]
+skip-string-normalization = true
