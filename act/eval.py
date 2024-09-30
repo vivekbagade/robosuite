@@ -32,6 +32,7 @@ def rollout():
     parser.add_argument("--device", type=str, default="keyboard")
     parser.add_argument("--pos-sensitivity", type=float, default=1.0, help="How much to scale position user inputs")
     parser.add_argument("--rot-sensitivity", type=float, default=1.0, help="How much to scale rotation user inputs")
+    parser.add_argument("--save-to-cloud", type=float, default=1.0, help="Save recorded episode to cloud")
     args = parser.parse_args()
 
     # Import controller config for EE IK or OSC (pos/ori)
@@ -103,7 +104,10 @@ def rollout():
     recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"], args.environment)
 
     def handler(arg1, arg2):
-        recorder.save_to_cloud(downsample_factor=4)
+        if args.save_to_cloud:
+            recorder.save_to_cloud(downsample_factor=4)
+        else:
+            recorder.save(downsample_factor=4)
         print("Exiting..")
         sys.exit(0)
 
