@@ -12,16 +12,22 @@ from octo.model.octo_model import OctoModel
 from functools import partial
 from octo.utils.train_callbacks import supply_rng
 import cv2
+import tkinter as tk
+from PIL import Image, ImageTk
 
-
-def get_image(obs, cam_name, resize_height, resize_width, old_image):
+def get_image(obs, cam_name, resize_height, resize_width, old_image, show_image = False):
     img = cv2.resize(np.array(obs[cam_name + "_image"]), (resize_height, resize_width))
     img = cv2.rotate(img, cv2.ROTATE_180)
+    if show_image:
+        image = Image.fromarray(img)
+
+        # Save the image as PNG
+        image.save('output_image.png')
     if old_image.size == 0:
         return np.repeat(img[np.newaxis, :, :, :], 2, axis=0)
     else:
         return np.stack([old_image, img], axis=0)
-
+dataset = "bridge_dataset"
 
 if __name__ == "__main__":
 
@@ -87,9 +93,7 @@ if __name__ == "__main__":
     
     model = OctoModel.load_pretrained("hf://rail-berkeley/octo-small-1.5")
 
-    stats = model.dataset_statistics['taco_play']['action']
-
-
+    stats = model.dataset_statistics[dataset]['action']
     pre_process = lambda s_qpos: (s_qpos - stats['mean']) / stats['std']
 
     # Reset the environment
@@ -98,18 +102,19 @@ if __name__ == "__main__":
     policy_fn = supply_rng(
         partial(
             model.sample_actions,
-            unnormalization_statistics=model.dataset_statistics["taco_play"]["action"],
+            unnormalization_statistics=model.dataset_statistics[dataset]["action"],
         ),
     )
-    task = model.create_tasks(texts=["pick up the can"])
+    task = model.create_tasks(texts=["pick up the red can which is on the table"])
     old_wrist_img = np.array([])
     old_primary_img = np.array([])
 
     for t in range(400):
         model_observations = dict()
         model_observations['timestep_pad_mask'] = np.array([True, True])
-        model_observations['image_primary'] = get_image(obs, 'frontview', 256, 256, old_primary_img)
+        model_observations['image_primary'] = get_image(obs, 'frontview', 256, 256, old_primary_img, t == 1)
         model_observations['image_wrist'] = get_image(obs, 'robot0_eye_in_hand', 128, 128, old_wrist_img)
+
 
 
         old_primary_img = model_observations['image_primary'][1]
@@ -121,11 +126,11 @@ if __name__ == "__main__":
         actions = model.sample_actions(
             model_observations, 
             task, 
-            unnormalization_statistics=model.dataset_statistics["taco_play"]["action"], 
+            unnormalization_statistics=model.dataset_statistics[dataset]["action"], 
             rng=jax.random.PRNGKey(0)
         )
-        actions = actions[0][0] # remove batch dim and get first action
-        obs, reward, done, info = env.step(actions)
+        for action in actions[0]:
+            obs, reward, done, info = env.step(action)
+            env.render()
         
-        env.render()
     print("End of episode")

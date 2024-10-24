@@ -2,7 +2,9 @@ import h5py
 import time
 import numpy as np
 import os
-
+import tensorflow as tf
+import tensorflow_datasets as tfds
+import rlds
 
 cam_height = 256
 cam_width = 256
@@ -70,3 +72,52 @@ class Recorder:
             
             for name, array in self.data_dict.items():
                 root[name][...] = array
+
+class RobosuiteRecorder:
+    def __init__(self, cameras, task, episode_len, save_dir) -> None:
+        self.episode = np.array([])
+        self.cameras = cameras
+        self.task = task
+        self.episode_len = episode_len
+        self.save_dir = save_dir
+
+    def record(self, obs, action) -> None:
+        data_dict = {}
+
+        # [joint pos cos][joint pos sin][joint vel][EEF XYZ quat][gripper_qpos][gripper_qvel]
+        # Size [7][7][7][7][2][2]
+        data_dict['proprio'] = np.array(obs['robot0_proprio-state'], dtype=np.float32)
+        for cam_name in self.cameras:
+            data_dict[cam_name] = np.array(obs[cam_name + "_image"], dtype=np.uint8)
+        data_dict['action'] = np.array(action, dtype=np.float32)
+        data_dict['language_instruction'] = self.task
+
+        self.episode = np.append(self.episode, data_dict)
+
+    def save(self) -> None:
+        cur_len = len(self.episode)
+        if cur_len < 10:
+            print(f'Only found {cur_len} Not enough steps to save episode')
+            return
+        if cur_len > self.episode_len:
+            print(f'recording currently of size {cur_len} is longer than expected, skipping save')
+            return
+
+        # padding to episode_len        
+        pad_len = self.episode_len - cur_len
+        exemplar = self.episode[0]
+        data_dict = {}
+        data_dict['proprio'] = np.zeros_like(exemplar['proprio'])
+        for cam_name in self.cameras:
+            data_dict[cam_name] = np.zeros_like(exemplar[cam_name])
+        data_dict['action'] = np.zeros_like(exemplar['action'])
+        data_dict['language_instruction'] = self.task
+        padding = np.array([data_dict] * pad_len)
+        
+        self.episode = np.append(self.episode, padding)
+
+        idx = len([name for name in os.listdir(self.save_dir) if os.path.isfile(os.path.join(self.save_dir, name))])
+
+        dataset_path = os.path.join(self.save_dir, f'episode_{idx}')
+        
+        np.save(dataset_path, self.episode)

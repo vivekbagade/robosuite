@@ -102,7 +102,7 @@ import robosuite as suite
 from robosuite import load_controller_config
 from robosuite.utils.input_utils import input2action
 from robosuite.wrappers import VisualizationWrapper
-from robosuite.recorder import Recorder
+from robosuite.recorder import RobosuiteRecorder
 import signal
 import sys
 
@@ -181,7 +181,9 @@ if __name__ == "__main__":
     else:
         raise Exception("Invalid device choice: choose either 'keyboard' or 'spacemouse'.")
 
-    recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"], args.environment)
+    recorder = RobosuiteRecorder(["robot0_eye_in_hand", "frontview"],
+                                "Pick up the red can", 400,
+                                "/data/episodes/train")
     def handler(arg1, arg2):
         recorder.save()
         print('Exiting..')
