@@ -4,6 +4,7 @@ import numpy as np
 from absl import flags
 import glob
 import tensorflow_hub as hub
+from rlds import rlds_types
 
 DATASET_PATH = flags.DEFINE_string(
     "dataset_path", "/data/episodes/train", "location to store episodes"
@@ -88,12 +89,12 @@ class RobosuiteDatasetBuilder(tfds.core.GeneratorBasedBuilder):
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
         """Generator of examples for each split."""
 
-        def _parse_example(episode_path):
+        def _generate_rlds_example(episode_path):
             # load raw data --> this should change for your dataset
             data = np.load(episode_path, allow_pickle=True)     # this is a list of dicts in our case
 
             # assemble episode --> here we're assuming demos so we set reward to 1 at the end
-            episode = []
+            steps = []
             terminal_step = len(data) - 1
             for i in range(len(data) - 1, -1, -1):
                 if np.all(data[i]['step'] != 0.0):
@@ -102,36 +103,40 @@ class RobosuiteDatasetBuilder(tfds.core.GeneratorBasedBuilder):
             for i, step in enumerate(data):
                 # compute Kona language embedding
                 language_embedding = self._embed([step['language_instruction']])[0].numpy()
+ 
+                steps.append(
+                    rlds_types.build_step(
+                        observation={
+                            'image': step['frontview'],
+                            'wrist_image': step['robot0_eye_in_hand'],
+                            'state': step['proprio'],
+                        },
+                        action=step['action'],
+                        is_first=i==0,
+                        is_last=i==terminal_step,
+                        metadata={
+                            'language_instruction': step['language_instruction'],
+                            'language_embedding': language_embedding,
+                        }
+                    )
+                )
 
-                episode.append({
-                    'observation': {
-                        'image': step['frontview'],
-                        'wrist_image': step['robot0_eye_in_hand'],
-                        'state': step['proprio'],
+            rlds_episode = rlds_types.build_episode(
+                steps=steps,
+                metadata={
+                    "episode_metadata": {
+                        'episode_id': episode_path,
                     },
-                    'action': step['action'],
-                    'is_first': i == 0,
-                    'is_last': i == terminal_step,
-                    'is_terminal': i == terminal_step,
-                    'language_instruction': step['language_instruction'],
-                    'language_embedding': language_embedding,
-                })
-
-            # create output data sample
-            sample = {
-                'steps': episode,
-                'episode_metadata': {
-                    'file_path': episode_path
-                }
-            }
+                },
+            )
 
             # if you want to skip an example for whatever reason, simply return None
-            return episode_path, sample
+            return episode_path, rlds_episode
 
         # create list of all examples
         episode_paths = glob.glob(path)
 
         # for smallish datasets, use single-thread parsing
         for sample in episode_paths:
-            yield _parse_example(sample)
+            yield _generate_rlds_example(sample)
 

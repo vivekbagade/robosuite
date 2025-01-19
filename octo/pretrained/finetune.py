@@ -10,6 +10,7 @@ from absl import flags
 import optax
 import sys
 import tqdm
+from tensorflow_datasets import as_numpy as t_n
 from robosuite.recorder.dataset_builder import RobosuiteDatasetBuilder
 
 RECORDING_PATH = flags.DEFINE_string(
@@ -20,7 +21,7 @@ BASE_MODEL_PATH = flags.DEFINE_string(
     "base_model_path", "/data/model/octo-base-1.5", "path to the pre finetuning path"
 )
 BATCH_SIZE = flags.DEFINE_integer(
-    "batch_size", 5, "batch size for finetuning"
+    "batch_size", 1, "batch size for finetuning"
 )
 ACTION_SIZE = flags.DEFINE_integer(
     "action_size", 50, "action horizon length"
@@ -41,7 +42,7 @@ if __name__ == "__main__":
     dataset = data_lib.make_single_dataset(
         dataset_kwargs=dict(
             name="RobosuiteDatasetBuilder",
-            data_dir=RECORDING_PATH.value,
+            data_dir='/home/vivekbagade/tensorflow_datasets',
             image_obs_keys={"primary": "image", "wrist": "wrist_image"},
             proprio_obs_key="state",
             language_key = "language_instruction",
@@ -56,7 +57,7 @@ if __name__ == "__main__":
         train=True,
     )
     iter = (
-        dataset.repeat().unbatch().shuffle(10000).batch(BATCH_SIZE.value)
+        t_n(dataset.repeat().unbatch().shuffle(10000).batch(BATCH_SIZE.value))
     )
     text_processor = pretrained.text_processor
 
@@ -79,7 +80,7 @@ if __name__ == "__main__":
 
     config["model"]["heads"]["action"] = spec.ModuleSpec.create(
         action_heads.L1ActionHead,
-        action_heads=ACTION_SIZE.value,
+        action_horizon=ACTION_SIZE.value,
         action_dim=7,
         readout_key = "readout_action",
     )
@@ -141,7 +142,7 @@ if __name__ == "__main__":
     logging.info("Starting finetuning loop..")
     for i in tqdm.tqdm(range(5000), total=5000, dynamic_ncols=True):
         batch = next(iter)
-        train_state, update_info = train_state(train_state, batch)
+        train_state, update_info = train_step(train_state, batch)
         if (i + 1) % 1000 == 0:
             update_info = jax.device_get(update_info)
             logging.info(update_info)
