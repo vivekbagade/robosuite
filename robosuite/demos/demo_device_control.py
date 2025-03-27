@@ -148,6 +148,8 @@ if __name__ == "__main__":
     else:
         args.config = None
 
+    config["obj_pos_override"] = [0.210, -0.407, 0.885]
+
     # Create environment
     env = suite.make(
         **config,
@@ -182,8 +184,8 @@ if __name__ == "__main__":
         raise Exception("Invalid device choice: choose either 'keyboard' or 'spacemouse'.")
 
     recorder = RobosuiteRecorder(["robot0_eye_in_hand", "frontview"],
-                                "Pick up the red can", 400,
-                                "/data/episodes/train")
+                                "Pick up the red can and place in the right place", 600,
+                                "/data/episodes/train/robosuite_dataset_builder/1.0.0/")
     def handler(arg1, arg2):
         recorder.save()
         print('Exiting..')
@@ -250,7 +252,7 @@ if __name__ == "__main__":
             
             # record the current obs and corresponding action picked
             obs['grasp'] = np.array([0]) if grasp == -1 else np.array([1])
-            recorder.record(obs, action)
+            #recorder.record(obs, action)
 
             # Step through the simulation and render
             obs, reward, done, info = env.step(action)

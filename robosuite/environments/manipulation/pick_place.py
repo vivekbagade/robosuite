@@ -200,6 +200,7 @@ class PickPlace(SingleArmEnv):
         camera_segmentations=None,  # {None, instance, class, element}
         renderer="mujoco",
         renderer_config=None,
+        obj_pos_override=[],
     ):
         # task settings
         self.single_object_mode = single_object_mode
@@ -229,6 +230,8 @@ class PickPlace(SingleArmEnv):
 
         # whether to use ground-truth object states
         self.use_object_obs = use_object_obs
+
+        self.obj_pos_override = obj_pos_override
 
         super().__init__(
             robots=robots,
@@ -420,7 +423,8 @@ class PickPlace(SingleArmEnv):
         # can sample anywhere in bin
         bin_x_half = self.model.mujoco_arena.table_full_size[0] / 2 - 0.05
         bin_y_half = self.model.mujoco_arena.table_full_size[1] / 2 - 0.05
-
+    
+    
         # each object should just be sampled in the bounds of the bin (with some tolerance)
         self.placement_initializer.append_sampler(
             sampler=UniformRandomSampler(
@@ -440,7 +444,6 @@ class PickPlace(SingleArmEnv):
         # each visual object should just be at the center of each target bin
         index = 0
         for vis_obj in self.visual_objects:
-
             # get center of target bin
             bin_x_low = self.bin2_pos[0]
             bin_y_low = self.bin2_pos[1]
@@ -703,7 +706,10 @@ class PickPlace(SingleArmEnv):
                     self.sim.model.body_quat[self.obj_body_id[obj.name]] = obj_quat
                 else:
                     # Set the collision object joints
-                    self.sim.data.set_joint_qpos(obj.joints[0], np.concatenate([np.array(obj_pos), np.array(obj_quat)]))
+                    if len(self.obj_pos_override) == 3:
+                        self.sim.data.set_joint_qpos(obj.joints[0], np.concatenate([np.array(self.obj_pos_override), np.array(obj_quat)]))
+                    else:
+                        self.sim.data.set_joint_qpos(obj.joints[0], np.concatenate([np.array(obj_pos), np.array(obj_quat)]))
 
         # Set the bins to the desired position
         self.sim.model.body_pos[self.sim.model.body_name2id("bin1")] = self.bin1_pos

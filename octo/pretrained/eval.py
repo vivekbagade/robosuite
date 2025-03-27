@@ -27,7 +27,7 @@ def get_image(obs, cam_name, resize_height, resize_width, old_image, show_image 
         return np.repeat(img[np.newaxis, :, :, :], 2, axis=0)
     else:
         return np.stack([old_image, img], axis=0)
-dataset = "bridge_dataset"
+# dataset = "RobosuiteDatasetBuilder"
 
 if __name__ == "__main__":
 
@@ -91,9 +91,9 @@ if __name__ == "__main__":
     # Setup printing options for numbers
     np.set_printoptions(formatter={"float": lambda x: "{0:0.3f}".format(x)})
     
-    model = OctoModel.load_pretrained("hf://rail-berkeley/octo-small-1.5")
+    model = OctoModel.load_pretrained("/data/checkpoints/octo-finetune")
 
-    stats = model.dataset_statistics[dataset]['action']
+    stats = model.dataset_statistics['action']
     pre_process = lambda s_qpos: (s_qpos - stats['mean']) / stats['std']
 
     # Reset the environment
@@ -102,31 +102,33 @@ if __name__ == "__main__":
     policy_fn = supply_rng(
         partial(
             model.sample_actions,
-            unnormalization_statistics=model.dataset_statistics[dataset]["action"],
+            unnormalization_statistics=model.dataset_statistics["action"],
         ),
     )
-    task = model.create_tasks(texts=["pick up the red can which is on the table"])
-    old_wrist_img = np.array([])
-    old_primary_img = np.array([])
+    task = model.create_tasks(texts=["Pick up the red can and place in the right place"])
+    obs_step = dict()
 
-    for t in range(400):
-        model_observations = dict()
-        model_observations['timestep_pad_mask'] = np.array([True, True])
-        model_observations['image_primary'] = get_image(obs, 'frontview', 256, 256, old_primary_img, t == 1)
-        model_observations['image_wrist'] = get_image(obs, 'robot0_eye_in_hand', 128, 128, old_wrist_img)
+    for t in range(600):
+        obs_step['image_primary'] = np.array([np.array(obs["frontview_image"], dtype=np.uint8)])
+        obs_step['image_wrist'] = np.array([np.array(obs["robot0_eye_in_hand_image"], dtype=np.uint8)])
+        obs_step['proprio'] = np.array([np.array(obs['robot0_proprio-state'], dtype=np.float32)])
+        obs_step['timestep_pad_mask'] = np.array([True])
+        obs_step['task_completed'] = np.array([np.full(50, False)])
+        obs_step['timestep'] = np.array([t])
+        obs_step['pad_mask_dict'] = {
+            'image_primary': np.array([True]),
+            'image_wrist': np.array([True]),
+            'timestep': np.array([True]),
+            'proprio': np.array([True]),
+        }
 
-
-
-        old_primary_img = model_observations['image_primary'][1]
-        old_wrist_img = model_observations['image_wrist'][1]
-
-        model_observations = jax.tree_map(lambda x: x[None], model_observations)
+        model_observations = jax.tree_map(lambda x: x[None], obs_step)
 
         # this returns *normalized* actions --> we need to unnormalize using the dataset statistics
         actions = model.sample_actions(
             model_observations, 
             task, 
-            unnormalization_statistics=model.dataset_statistics[dataset]["action"], 
+            unnormalization_statistics=model.dataset_statistics["action"], 
             rng=jax.random.PRNGKey(0)
         )
         for action in actions[0]:

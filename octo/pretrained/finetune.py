@@ -57,7 +57,7 @@ if __name__ == "__main__":
         train=True,
     )
     iter = (
-        t_n(dataset.repeat().unbatch().shuffle(10000).batch(BATCH_SIZE.value))
+        dataset.repeat().unbatch().shuffle(10000).batch(BATCH_SIZE.value).iterator()
     )
     text_processor = pretrained.text_processor
 

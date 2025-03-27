@@ -8,7 +8,7 @@ import rlds
 
 cam_height = 256
 cam_width = 256
-episode_len = 800
+episode_len = 600
 
 class Recorder:
     def __init__(self, cameras, task) -> None:

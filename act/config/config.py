@@ -22,7 +22,7 @@ os.environ['DEVICE'] = device
 # task config (you can add new tasks)
 TASK_CONFIG = {
     'dataset_dir': DATA_DIR,
-    'episode_len': 800,
+    'episode_len': 600,
     'state_dim': 8,
     'action_dim': 7,
     'cam_width': 256,
