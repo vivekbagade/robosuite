@@ -18,7 +18,7 @@ RECORDING_PATH = flags.DEFINE_string(
 )
 
 BASE_MODEL_PATH = flags.DEFINE_string(
-    "base_model_path", "/data/model/octo-base-1.5", "path to the pre finetuning path"
+    "base_model_path", "/data/checkpoints/octo-finetune/1.0.0", "path to the pre finetuning path"
 )
 BATCH_SIZE = flags.DEFINE_integer(
     "batch_size", 1, "batch size for finetuning"
@@ -27,7 +27,7 @@ ACTION_SIZE = flags.DEFINE_integer(
     "action_size", 50, "action horizon length"
 )
 CHECKPOINT_DIR = flags.DEFINE_string(
-    "checkpoint_dir", "/data/checkpoints/octo-finetune", "path to store checkpoints"
+    "checkpoint_dir", "/data/checkpoints/octo-finetune/1.1.0", "path to store checkpoints"
 )
 FREEZE_TRANSFORMER =flags.DEFINE_bool(
     "freeze_trans", False, "whether to freeze transformer"

@@ -71,6 +71,8 @@ if __name__ == "__main__":
     else:
         args.config = None
 
+    # config["obj_pos_override"] = [0.210, -0.407, 0.885]
+
     # Create environment
     env = suite.make(
         **config,
@@ -91,7 +93,7 @@ if __name__ == "__main__":
     # Setup printing options for numbers
     np.set_printoptions(formatter={"float": lambda x: "{0:0.3f}".format(x)})
     
-    model = OctoModel.load_pretrained("/data/checkpoints/octo-finetune")
+    model = OctoModel.load_pretrained("/data/checkpoints/octo-finetune/1.1.0")
 
     stats = model.dataset_statistics['action']
     pre_process = lambda s_qpos: (s_qpos - stats['mean']) / stats['std']

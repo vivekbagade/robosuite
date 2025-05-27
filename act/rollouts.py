@@ -60,7 +60,7 @@ if __name__ == "__main__":
     else:
         args.config = None
     
-    # config["obj_pos_override"] = [0.210, -0.407, 0.885]
+    config["obj_pos_override"] = [0.210, -0.407, 0.885]
 
     # Create environment
     env = suite.make(
@@ -99,34 +99,35 @@ if __name__ == "__main__":
     camera_names = POLICY_CONFIG['camera_names']
     query_frequency = POLICY_CONFIG['num_queries']
 
-        # Reset the environment
-    obs = env.reset()
-    all_actions = None
 
-    for t in range(TRAIN_CONFIG['num_epochs']):
-        qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
-        grasp = [0]
-        if 'grasp' in obs:
-            grasp = [obs['grasp']]
-        qpos = np.concatenate((qpos, grasp))
-        qpos = pre_process(qpos)
-        qpos = torch.from_numpy(qpos).float().to(device).unsqueeze(0)
+    for i in range(25):
+        obs = env.reset()
+        all_actions = None
+        print(f"Episode {i}")
+        for t in range(800):
+            qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
+            grasp = [0]
+            if 'grasp' in obs:
+                grasp = [obs['grasp']]
+            qpos = np.concatenate((qpos, grasp))
+            qpos = pre_process(qpos)
+            qpos = torch.from_numpy(qpos).float().to(device).unsqueeze(0)
 
-        with torch.inference_mode():
-            if t % query_frequency == 0:
-                all_actions = policy(qpos, get_image(obs, camera_names, device))
+            with torch.inference_mode():
+                if t % query_frequency == 0:
+                    all_actions = policy(qpos, get_image(obs, camera_names, device))
 
-            cur_action = all_actions[:, t % query_frequency]
-            cur_action = cur_action.squeeze(0).cpu().numpy()
-            cur_action = post_process(cur_action)
+                cur_action = all_actions[:, t % query_frequency]
+                cur_action = cur_action.squeeze(0).cpu().numpy()
+                cur_action = post_process(cur_action)
 
-        # If action is none, then this a reset so we should break
-        if cur_action is None:
-            print('No action')
-            break
+            # If action is none, then this a reset so we should break
+            if cur_action is None:
+                print('No action')
+                break
 
-        obs, reward, done, info = env.step(cur_action)
-        
-        
-        env.render()
+            obs, reward, done, info = env.step(cur_action)
+            
+            
+            env.render()
     print("End of episode")

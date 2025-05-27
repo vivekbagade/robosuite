@@ -52,6 +52,26 @@ POLICY_CONFIG = {
     'action_dim': 7
 }
 
+# finetuning config
+FINETUNING_POLICY_CONFIG = {
+    'lr': 2e-7,
+    'device': device,
+    'num_queries': 100,
+    'kl_weight': 10,
+    'hidden_dim': 512,
+    'dim_feedforward': 3200,
+    'lr_backbone': 5e-7,
+    'backbone': 'resnet18',
+    'enc_layers': 4,
+    'dec_layers': 7,
+    'nheads': 8,
+    'camera_names': ["robot0_eye_in_hand", "frontview", "birdview"],
+    'policy_class': 'ACT',
+    'temporal_agg': False,
+    'state_dim': 8,
+    'action_dim': 7
+}
+
 # training config
 TRAIN_CONFIG = {
     'seed': 42,
@@ -60,4 +80,13 @@ TRAIN_CONFIG = {
     'batch_size_train': 8,
     'eval_ckpt_name': 'policy_last.ckpt',
     'checkpoint_dir': CHECKPOINT_DIR
+}
+
+# finetuning_train_config
+FINETUNING_TRAIN_CONFIG = {
+    'seed': 42,
+    'num_epochs': 500,
+    'batch_size_val': 3,
+    'batch_size_train': 1,
+    'eval_ckpt_name': 'policy_last.ckpt',
 }

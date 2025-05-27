@@ -5,14 +5,15 @@ from absl import flags
 import glob
 import tensorflow_hub as hub
 
-DATASET_PATH = "/data/episodes/train"
+VERSION = "1.1.0"
+DATASET_PATH = f"/data/episodes/train/{VERSION}"
 
 class RobosuiteDatasetBuilder(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
-    VERSION = tfds.core.Version('1.0.0')
+    VERSION = tfds.core.Version('1.1.0')
     RELEASE_NOTES = {
-      '1.0.0': 'Initial release.',
+      '1.1.0': 'Finetuned on edge failures',
     }
 
     def __init__(self, *args, **kwargs):
