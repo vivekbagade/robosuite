@@ -3,7 +3,6 @@
 """
 import pickle
 from config.config import POLICY_CONFIG, TRAIN_CONFIG, device # must import first
-import argparse
 import numpy as np
 import robosuite as suite
 from robosuite import load_controller_config
@@ -11,28 +10,29 @@ from robosuite.wrappers import VisualizationWrapper
 from policy import ACTPolicy
 import torch
 import os
+import absl.flags as flags
+import sys
 
 from utils.utils import get_image
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--environment", type=str, default="Lift")
-    parser.add_argument("--robots", nargs="+", type=str, default="Panda", help="Which robot(s) to use in the env")
-    parser.add_argument(
-        "--config", type=str, default="single-arm-opposed", help="Specified environment configuration if necessary"
-    )
-    parser.add_argument("--arm", type=str, default="right", help="Which arm to control (eg bimanual) 'right' or 'left'")
-    parser.add_argument("--switch-on-grasp", action="store_true", help="Switch gripper control on gripper action")
-    parser.add_argument("--toggle-camera-on-grasp", action="store_true", help="Switch camera angle on gripper action")
-    parser.add_argument("--controller", type=str, default="osc", help="Choice of controller. Can be 'ik' or 'osc'")
-    parser.add_argument("--device", type=str, default="keyboard")
-    parser.add_argument("--pos-sensitivity", type=float, default=1.0, help="How much to scale position user inputs")
-    parser.add_argument("--rot-sensitivity", type=float, default=1.0, help="How much to scale rotation user inputs")
-    parser.add_argument("--data-dir", type=str, default="/act-data", help="The dir containing training episodes, weights etc")
-    parser.add_argument("--version", type=str, default="1.0.0", help="The version of the model to eval")
-    args = parser.parse_args()
-
+    flags.DEFINE_string("environment", "Lift", "Environment to use")
+    flags.DEFINE_list("robots", ["Panda"], "Which robot(s) to use in the env")
+    flags.DEFINE_string("config", "single-arm-opposed", "Specified environment configuration if necessary")
+    flags.DEFINE_string("arm", "right", "Which arm to control (eg bimanual) 'right' or 'left'")
+    flags.DEFINE_boolean("switch_on_grasp", False, "Switch gripper control on gripper action")
+    flags.DEFINE_boolean("toggle_camera_on_grasp", False, "Switch camera angle on gripper action")
+    flags.DEFINE_string("controller", "osc", "Choice of controller. Can be 'ik' or 'osc'")
+    flags.DEFINE_string("device", "keyboard", "Device to use for control")
+    flags.DEFINE_float("pos_sensitivity", 1.0, "How much to scale position user inputs")
+    flags.DEFINE_float("rot_sensitivity", 1.0, "How much to scale rotation user inputs")
+    flags.DEFINE_string("data_dir", "/act-data", "The dir containing training episodes, weights etc")
+    flags.DEFINE_string("version", "1.0.0", "The version of the model to eval")
+    FLAGS = flags.FLAGS
+    FLAGS(sys.argv)
+    # Parse command line arguments
+    args = FLAGS
     checkpoint_dir = f"{args.data_dir}/{args.environment}/weights/{args.version}"
 
     # Import controller config for EE IK or OSC (pos/ori)
