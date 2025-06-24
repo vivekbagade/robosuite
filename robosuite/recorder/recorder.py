@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+
 class Recorder:
     def __init__(self, cameras, cam_height, cam_width, episode_len, task, data_dir, version) -> None:
         self.episodes_dir = f"{data_dir}/{task}/episodes/{version}"
@@ -22,13 +23,14 @@ class Recorder:
             self.data_dict[f'/observations/images/{cam_name}'] = []
         
 
-    def record(self, obs, action) -> None:
+    def record(self, obs, action, key_frame) -> None:
         qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
         self.data_dict['/observations/qpos'].append(np.concatenate((qpos, obs['grasp'])))
         self.data_dict['/observations/qvel'].append(np.concatenate((obs['robot0_joint_vel'], obs['grasp'])))
         self.data_dict['/action'].append(action)
         for cam_name in self.cameras:
             self.data_dict[f'/observations/images/{cam_name}'].append(obs[cam_name + "_image"])
+        self.data_dict['/observations/key_frame'] = key_frame
 
     def save(self) -> None:
         max_timesteps = len(self.data_dict['/observations/qpos'])
@@ -46,6 +48,7 @@ class Recorder:
         self.data_dict['/action'] = np.pad(self.data_dict['/action'], ((0, pad_len), (0, 0)), mode='constant')
         for cam_name in self.cameras:
             self.data_dict[f'/observations/images/{cam_name}'] = np.pad(self.data_dict[f'/observations/images/{cam_name}'], ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
+        self.data_dict['/observations/key_frame'] = np.pad(self.data_dict['/observations/key_frame'], (0, pad_len), mode='constant')
 
         # create data dir if it doesn't exist
         if not os.path.exists(self.episodes_dir): os.makedirs(self.episodes_dir)

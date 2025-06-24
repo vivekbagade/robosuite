@@ -7,6 +7,7 @@ import numpy as np
 import robosuite as suite
 from robosuite import load_controller_config
 from robosuite.wrappers import VisualizationWrapper
+from robosuite.recorder import Recorder
 from policy import ACTPolicy
 import torch
 import os
@@ -14,6 +15,8 @@ import absl.flags as flags
 import sys
 
 from utils.utils import get_image
+
+collision_init_time = 100
 
 if __name__ == "__main__":
 
@@ -29,6 +32,7 @@ if __name__ == "__main__":
     flags.DEFINE_float("rot_sensitivity", 1.0, "How much to scale rotation user inputs")
     flags.DEFINE_string("data_dir", "/act-data", "The dir containing training episodes, weights etc")
     flags.DEFINE_string("version", "1.0.0", "The version of the model to eval")
+    flags.DEFINE_integer("num_episodes", 1, "Number of episodes to run for evaluation")
     FLAGS = flags.FLAGS
     FLAGS(sys.argv)
     # Parse command line arguments
@@ -98,12 +102,14 @@ if __name__ == "__main__":
     post_process = lambda a: a * stats['action_std'] + stats['action_mean']
     camera_names = POLICY_CONFIG['camera_names']
     query_frequency = POLICY_CONFIG['num_queries']
+    current_ncon = 0
 
-
-    for i in range(25):
+    for i in range(args.num_episodes):
         obs = env.reset()
         all_actions = None
-        print(f"Episode {i}")
+        print(f"Episode {i+1} in progress...")
+        recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"],
+                         256, 256, 800, "PickPlaceCan", "/act-data", f"{args.version}-sim")
         for t in range(800):
             qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
             grasp = [0]
@@ -112,6 +118,8 @@ if __name__ == "__main__":
             qpos = np.concatenate((qpos, grasp))
             qpos = pre_process(qpos)
             qpos = torch.from_numpy(qpos).float().to(device).unsqueeze(0)
+
+            
 
             with torch.inference_mode():
                 if t % query_frequency == 0:
@@ -125,9 +133,19 @@ if __name__ == "__main__":
             if cur_action is None:
                 print('No action')
                 break
+            # record the current obs and corresponding action picked
+            obs['grasp'] = np.array([0]) if grasp == -1 else np.array([1])
+            key_frame = False
+            # Check if the number of contacts has changed, if so, record a key frame
+            if abs(current_ncon - env.sim.data.ncon) > 0 and i >= collision_init_time:
+                key_frame = True
+                current_ncon = env.sim.data.ncon
+            recorder.record(obs, cur_action, key_frame)
 
             obs, reward, done, info = env.step(cur_action)
             
             
             env.render()
+        # Save the episode data
+        recorder.save()
     print("End of episode")

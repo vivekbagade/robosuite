@@ -106,6 +106,8 @@ from robosuite.recorder import Recorder
 import signal
 import sys
 
+collision_init_time = 100
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -190,6 +192,7 @@ if __name__ == "__main__":
         print('Exiting..')
         sys.exit(0)
     signal.signal(signal.SIGINT, handler)
+    current_ncon = 0
     while True:
         # Reset the environment
         obs = env.reset()
@@ -204,7 +207,8 @@ if __name__ == "__main__":
 
         # Initialize device control
         device.start_control()
-
+        
+        cur_episode_len = 0
         while True:
             # Set active robot
             active_robot = env.robots[0] if args.config == "bimanual" else env.robots[args.arm == "left"]
@@ -213,6 +217,7 @@ if __name__ == "__main__":
             action, grasp = input2action(
                 device=device, robot=active_robot, active_arm=args.arm, env_configuration=args.config
             )
+            cur_episode_len += 1
 
             # If action is none, then this a reset so we should break
             if action is None:
@@ -251,7 +256,12 @@ if __name__ == "__main__":
             
             # record the current obs and corresponding action picked
             obs['grasp'] = np.array([0]) if grasp == -1 else np.array([1])
-            recorder.record(obs, action)
+            key_frame = False
+            # Check if the number of contacts has changed, if so, record a key frame
+            if abs(current_ncon - env.sim.data.ncon) > 0 and cur_episode_len >= collision_init_time:
+                key_frame = True
+                current_ncon = env.sim.data.ncon
+            recorder.record(obs, action, key_frame)
 
             # Step through the simulation and render
             obs, reward, done, info = env.step(action)
