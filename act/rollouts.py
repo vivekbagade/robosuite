@@ -102,9 +102,9 @@ if __name__ == "__main__":
     post_process = lambda a: a * stats['action_std'] + stats['action_mean']
     camera_names = POLICY_CONFIG['camera_names']
     query_frequency = POLICY_CONFIG['num_queries']
-    current_ncon = 0
 
     for i in range(args.num_episodes):
+        current_ncon = 0
         obs = env.reset()
         all_actions = None
         print(f"Episode {i+1} in progress...")
@@ -137,9 +137,9 @@ if __name__ == "__main__":
             obs['grasp'] = np.array([0]) if grasp == -1 else np.array([1])
             key_frame = False
             # Check if the number of contacts has changed, if so, record a key frame
-            if abs(current_ncon - env.sim.data.ncon) > 0 and i >= collision_init_time:
+            if abs(current_ncon - env.sim.data.ncon) > 0 and t >= collision_init_time:
                 key_frame = True
-                current_ncon = env.sim.data.ncon
+            current_ncon = env.sim.data.ncon
             recorder.record(obs, cur_action, key_frame)
 
             obs, reward, done, info = env.step(cur_action)
