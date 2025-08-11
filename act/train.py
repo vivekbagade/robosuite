@@ -136,7 +136,7 @@ if __name__ == '__main__':
     set_seed(train_cfg['seed'])
     # create ckpt dir if not exists
     os.makedirs(checkpoint_dir, exist_ok=True)
-   # number of training episodes
+    # number of training episodes
     data_dir = os.path.join(task_cfg['dataset_dir'], task)
     num_episodes = len(os.listdir(data_dir))
 

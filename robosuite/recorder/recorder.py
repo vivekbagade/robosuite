@@ -11,6 +11,7 @@ class Recorder:
         self.data_dict = {
             '/observations/qpos': [],
             '/observations/qvel': [],
+            '/observations/key_frame': [],
             '/action': [],
         }
         self.cameras = cameras
@@ -30,9 +31,9 @@ class Recorder:
         self.data_dict['/action'].append(action)
         for cam_name in self.cameras:
             self.data_dict[f'/observations/images/{cam_name}'].append(obs[cam_name + "_image"])
-        self.data_dict['/observations/key_frame'] = key_frame
+        self.data_dict['/observations/key_frame'].append(key_frame)
 
-    def save(self) -> None:
+    def save(self) -> str:
         max_timesteps = len(self.data_dict['/observations/qpos'])
         if max_timesteps < 10:
             print('Not enough steps to save episode')
@@ -68,9 +69,11 @@ class Recorder:
             qvel = obs.create_dataset('qvel', (self.episode_len, 8))
             # image = obs.create_dataset("image", (episode_len, 240, 320, 3), dtype='uint8', chunks=(1, 240, 320, 3))
             action = root.create_dataset('action', (self.episode_len, 7))
+            key_frame = obs.create_dataset('key_frame', (self.episode_len,), dtype='bool')
             
             for name, array in self.data_dict.items():
                 root[name][...] = array
+        return dataset_path + '.hdf5'
 
 class RobosuiteRecorder:
     def __init__(self, cameras, task, episode_len, save_dir) -> None:

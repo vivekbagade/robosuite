@@ -2,6 +2,7 @@
 
 """
 import pickle
+import time
 from config.config import POLICY_CONFIG, TRAIN_CONFIG, device # must import first
 import numpy as np
 import robosuite as suite
@@ -14,7 +15,8 @@ import os
 import absl.flags as flags
 import sys
 
-from utils.utils import get_image
+from utils.utils import *
+from critic import Critic
 
 collision_init_time = 100
 
@@ -33,11 +35,13 @@ if __name__ == "__main__":
     flags.DEFINE_string("data_dir", "/act-data", "The dir containing training episodes, weights etc")
     flags.DEFINE_string("version", "1.0.0", "The version of the model to eval")
     flags.DEFINE_integer("num_episodes", 1, "Number of episodes to run for evaluation")
+    flags.DEFINE_boolean("save", True, "Whether to save the episode or not")
+    flags.DEFINE_string("task_definition", "The robot should pick up the red can and place it in the right bin. The right bin has a silhouette of a can on it.", "The task definition to use for evaluation")
     FLAGS = flags.FLAGS
     FLAGS(sys.argv)
     # Parse command line arguments
     args = FLAGS
-    checkpoint_dir = f"{args.data_dir}/{args.environment}/weights/{args.version}"
+    checkpoint_dir = get_weights_dir(args.data_dir, args.environment, args.version)
 
     # Import controller config for EE IK or OSC (pos/ori)
     if args.controller == "ik":
@@ -64,7 +68,7 @@ if __name__ == "__main__":
     else:
         args.config = None
     
-    config["obj_pos_override"] = [0.210, -0.407, 0.885]
+    # config["obj_pos_override"] = [0.210, -0.407, 0.885]
 
     # Create environment
     env = suite.make(
@@ -102,6 +106,14 @@ if __name__ == "__main__":
     post_process = lambda a: a * stats['action_std'] + stats['action_mean']
     camera_names = POLICY_CONFIG['camera_names']
     query_frequency = POLICY_CONFIG['num_queries']
+    critic = Critic()
+    episodes_dir = get_episodes_dir(args.data_dir, args.environment, args.version)
+
+    file = get_eval_result_file(args.data_dir, args.environment, args.version)
+    with open(file, "w") as f:
+        f.write(f"Evaluating {args.num_episodes} episodes for task: {args.environment}\n")
+        f.write(f"Task Definition: {args.task_definition}\n\n")
+    n_success = 0
 
     for i in range(args.num_episodes):
         current_ncon = 0
@@ -109,7 +121,7 @@ if __name__ == "__main__":
         all_actions = None
         print(f"Episode {i+1} in progress...")
         recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"],
-                         256, 256, 800, "PickPlaceCan", "/act-data", f"{args.version}-sim")
+                         256, 256, 800, "PickPlaceCan", args.data_dir, f"{args.version}-sim")
         for t in range(800):
             qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
             grasp = [0]
@@ -147,5 +159,17 @@ if __name__ == "__main__":
             
             env.render()
         # Save the episode data
-        recorder.save()
-    print("End of episode")
+        if args.save:
+            episode_path = recorder.save()
+            result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
+            with open(file, "a") as f:
+                f.write(f"{episode_path}: {result.success} and {result.reason}\n")
+                if result.success:
+                    n_success += 1
+            time.sleep(50)
+        else:
+            print("Episode not saved as per user request.")
+    if args.save:
+        with open(file, "a") as f:
+            f.write(f"\nTotal Successes: {n_success}/{args.num_episodes}\n")
+    print("End of rollout")

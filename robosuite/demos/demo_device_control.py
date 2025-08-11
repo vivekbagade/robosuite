@@ -105,6 +105,8 @@ from robosuite.wrappers import VisualizationWrapper
 from robosuite.recorder import Recorder
 import signal
 import sys
+from pynput import keyboard
+import threading
 
 collision_init_time = 100
 
@@ -123,7 +125,30 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="keyboard")
     parser.add_argument("--pos-sensitivity", type=float, default=1.0, help="How much to scale position user inputs")
     parser.add_argument("--rot-sensitivity", type=float, default=1.0, help="How much to scale rotation user inputs")
+    parser.add_argument("--data-dir", type=str, default="/act-data", help="The root ACT data directory")
+    parser.add_argument("--version", type=str, default="1.0.0", help="The version of the model to record for")
     args = parser.parse_args()
+
+    record = False
+    stop = False
+    lock = threading.Lock()
+
+    def on_press(key):
+        try:
+            global record, stop
+            if key == keyboard.Key.space:
+                with lock:
+                    print("Recording started...")
+                    record = True
+            elif key == keyboard.Key.esc:
+                with lock:
+                    stop = True
+        except Exception as e:
+            print(f'Keyboard exc {e}')
+    def on_release(key):
+        return
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    listener.start()
 
     # Import controller config for EE IK or OSC (pos/ori)
     if args.controller == "ik":
@@ -150,7 +175,7 @@ if __name__ == "__main__":
     else:
         args.config = None
 
-    config["obj_pos_override"] = [0.210, -0.407, 0.885]
+    # config["obj_pos_override"] = [0.210, -0.407, 0.885]
 
     # Create environment
     env = suite.make(
@@ -186,7 +211,7 @@ if __name__ == "__main__":
         raise Exception("Invalid device choice: choose either 'keyboard' or 'spacemouse'.")
 
     recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"],
-                         256, 256, 800, "PickPlaceCan", "/act-data", "1.1.0")
+                         256, 256, 800, args.environment, args.data_dir, args.version)
     def handler(arg1, arg2):
         recorder.save()
         print('Exiting..')
@@ -210,6 +235,11 @@ if __name__ == "__main__":
         
         cur_episode_len = 0
         while True:
+            with lock:
+                if stop:
+                    print("Stopping the demo as stop pressed...")
+                    recorder.save()
+                    sys.exit(0)
             # Set active robot
             active_robot = env.robots[0] if args.config == "bimanual" else env.robots[args.arm == "left"]
 
@@ -261,7 +291,9 @@ if __name__ == "__main__":
             if abs(current_ncon - env.sim.data.ncon) > 0 and cur_episode_len >= collision_init_time:
                 key_frame = True
                 current_ncon = env.sim.data.ncon
-            recorder.record(obs, action, key_frame)
+            with lock:
+                if record:
+                    recorder.record(obs, action, key_frame)
 
             # Step through the simulation and render
             obs, reward, done, info = env.step(action)

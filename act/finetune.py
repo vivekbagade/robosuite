@@ -1,5 +1,5 @@
 import tempfile
-from config.config import FINETUNING_POLICY_CONFIG, TASK_CONFIG, FINETUNING_TRAIN_CONFIG, TRAIN_CONFIG, POLICY_CONFIG  # must import first
+from config.config import FINETUNING_POLICY_CONFIG, TASK_CONFIG, FINETUNING_TRAIN_CONFIG, TRAIN_CONFIG  # must import first
 
 import os
 import pickle
@@ -14,6 +14,7 @@ from utils.utils import *
 from dataset.episodicdataset import load_data
 from policy import ACTPolicy
 from absl import flags
+from model_tree import ModelTree
 
 
 BASE_VERSION = flags.DEFINE_string(
@@ -34,11 +35,11 @@ DATA_DIR = flags.DEFINE_string(
 
 FLAGS = flags.FLAGS
 FLAGS(sys.argv)
+args = FLAGS
 
-base_weights_dir = f"{DATA_DIR.value}/{TASK.value}/weights/{BASE_VERSION.value}"
-checkpoint_dir = f"{DATA_DIR.value}/{TASK.value}/weights/{NEW_VERSION.value}"
-new_episodes_dir = f"{DATA_DIR.value}/{TASK.value}/episodes/{NEW_VERSION.value}"
-base_episodes_dir = f"{DATA_DIR.value}/{TASK.value}/episodes/{BASE_VERSION.value}"
+base_weights_dir = get_weights_dir(args.data_dir, args.task, args.base_version)
+checkpoint_dir = get_weights_dir(args.data_dir, args.task, args.new_version)
+new_episodes_dir = get_episodes_dir(args.data_dir, args.task, args.new_version)
 
 
 # configs
@@ -83,9 +84,12 @@ def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
 def train_bc(train_dataloader, val_dataloader, policy_config):
     # load policy
     ckpt_path = os.path.join(base_weights_dir, TRAIN_CONFIG['eval_ckpt_name'])
+    print(f"Checkpoint path: {ckpt_path}")
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(f"Checkpoint file {ckpt_path} does not exist. Please check the path.")
     policy = ACTPolicy(policy_config)
     loading_status = policy.load_state_dict(torch.load(ckpt_path, map_location=torch.device(device)))
-    print(loading_status)
+    print(f"Loading status: {loading_status}")
     policy.to(device)
 
     # load optimizer
@@ -148,20 +152,16 @@ def train_bc(train_dataloader, val_dataloader, policy_config):
     torch.save(policy.state_dict(), ckpt_path)
 
 
-def copy_base_episodes(base_dir, new_dir):
-    base_episodes_names = [name for name in os.listdir(base_dir) if os.path.isfile(os.path.join(base_dir, name))]
-    num_base_episodes = len(base_episodes_names)
+def copy_base_episodes(new_dir, base_versions):
     num_new_episodes = len([name for name in os.listdir(new_dir) if os.path.isfile(os.path.join(new_dir, name))])
-    
-    if 2 * num_new_episodes > num_base_episodes or num_new_episodes == 0:
-        raise IndexError('Num of episodes in base should be at least 2x more than ones in new dir')
-
-    # Pick the same number of episodes from the base dir to the new dir
-    random_files = random.sample(base_episodes_names, 2*num_new_episodes)
-    idx = num_new_episodes
-    for file in random_files:
-        shutil.copy(os.path.join(base_dir, file), os.path.join(new_dir, f'episode_{idx}.hdf5'))
-        idx+=1
+    idx = len(os.listdir(new_dir))
+    num_episodes_to_copy = 3 * num_new_episodes
+    src_list = [get_episodes_dir(DATA_DIR.value, TASK.value, version) for version in base_versions]
+    files_to_copy = get_file_paths_to_copy(src_list, num_episodes_to_copy)
+    for file in files_to_copy:
+        print(f"Copying {file} to {new_dir}")
+        shutil.copy(file, os.path.join(new_dir, f'episode_{idx}.hdf5'))
+        idx += 1
 
 # Copy episodes to /tmp/act-finetuning-xxx and return the path
 def copy_to_tmp(base_dir):
@@ -180,14 +180,22 @@ if __name__ == '__main__':
     set_seed(train_cfg['seed'])
     # create ckpt dir if not exists
     os.makedirs(checkpoint_dir, exist_ok=True)
-    # number of training episodes
-    num_episodes = len(os.listdir(new_episodes_dir))
 
     # Copy episodes to /tmp/act-finetuning-xxx
     new_episodes_dir = copy_to_tmp(new_episodes_dir)
+    
+    model_tree = ModelTree.load_from_disk(DATA_DIR.value)
+    model_tree.add_new_version(NEW_VERSION.value, {'description': 'Finetuning test'})
+    model_tree.add_weight_edge(base_version=BASE_VERSION.value, new_version=NEW_VERSION.value)
+    base_episode_edges = model_tree.get_episode_edges(BASE_VERSION.value)
+    base_episode_edges.append(BASE_VERSION.value)  # include the base version itself
+    for edge in base_episode_edges:
+        model_tree.add_episode_edge(base_version=edge, new_version=NEW_VERSION.value)
+
 
     # To stop catastrophic forgetting
-    copy_base_episodes(base_episodes_dir, new_episodes_dir)
+    copy_base_episodes(new_episodes_dir, base_episode_edges)
+    num_episodes = len(os.listdir(new_episodes_dir))
 
     # load data
     train_dataloader, val_dataloader, stats, _ = load_data(new_episodes_dir, num_episodes, task_cfg['camera_names'],
@@ -202,3 +210,5 @@ if __name__ == '__main__':
 
     # delete the tmp dir
     shutil.rmtree(new_episodes_dir)
+
+    model_tree.save_to_disk()
