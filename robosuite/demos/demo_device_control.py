@@ -169,6 +169,8 @@ if __name__ == "__main__":
         "controller_configs": controller_config,
     }
 
+    # config["obj_pos_override"] = [0.210, -0.407, 0.885]
+
     # Check if we're using a multi-armed environment and use env_configuration argument if so
     if "TwoArm" in args.environment:
         config["env_configuration"] = args.config
@@ -293,7 +295,7 @@ if __name__ == "__main__":
                 current_ncon = env.sim.data.ncon
             with lock:
                 if record:
-                    recorder.record(obs, action, key_frame)
+                    recorder.record(obs, action, key_frame, False)
 
             # Step through the simulation and render
             obs, reward, done, info = env.step(action)

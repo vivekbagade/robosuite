@@ -17,6 +17,7 @@ import sys
 
 from utils.utils import *
 from critic import Critic
+from critic_record import CriticRecord
 
 collision_init_time = 100
 
@@ -37,6 +38,7 @@ if __name__ == "__main__":
     flags.DEFINE_integer("num_episodes", 1, "Number of episodes to run for evaluation")
     flags.DEFINE_boolean("save", True, "Whether to save the episode or not")
     flags.DEFINE_string("task_definition", "The robot should pick up the red can and place it in the right bin. The right bin has a silhouette of a can on it.", "The task definition to use for evaluation")
+    flags.DEFINE_boolean("critic", True, "Whether to use the critic to evaluate the episode or not")
     FLAGS = flags.FLAGS
     FLAGS(sys.argv)
     # Parse command line arguments
@@ -68,7 +70,7 @@ if __name__ == "__main__":
     else:
         args.config = None
     
-    # config["obj_pos_override"] = [0.210, -0.407, 0.885]
+    config["obj_pos_override"] = [0.210, -0.407, 0.885]
 
     # Create environment
     env = suite.make(
@@ -107,12 +109,9 @@ if __name__ == "__main__":
     camera_names = POLICY_CONFIG['camera_names']
     query_frequency = POLICY_CONFIG['num_queries']
     critic = Critic()
+    critic_record = CriticRecord(args.data_dir, args.environment, f'{args.version}-sim', args.task_definition)
     episodes_dir = get_episodes_dir(args.data_dir, args.environment, args.version)
 
-    file = get_eval_result_file(args.data_dir, args.environment, args.version)
-    with open(file, "w") as f:
-        f.write(f"Evaluating {args.num_episodes} episodes for task: {args.environment}\n")
-        f.write(f"Task Definition: {args.task_definition}\n\n")
     n_success = 0
 
     for i in range(args.num_episodes):
@@ -152,24 +151,22 @@ if __name__ == "__main__":
             if abs(current_ncon - env.sim.data.ncon) > 0 and t >= collision_init_time:
                 key_frame = True
             current_ncon = env.sim.data.ncon
-            recorder.record(obs, cur_action, key_frame)
+            recorder.record(obs, cur_action, key_frame, True)
 
-            obs, reward, done, info = env.step(cur_action)
+            # Omit the last item since the last item indicates episode end
+            obs, reward, done, info = env.step(cur_action[:7])
             
             
             env.render()
         # Save the episode data
         if args.save:
             episode_path = recorder.save()
-            result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
-            with open(file, "a") as f:
-                f.write(f"{episode_path}: {result.success} and {result.reason}\n")
-                if result.success:
-                    n_success += 1
-            time.sleep(50)
+            if args.critic:
+                result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
+                critic_record.record_episode(episode_path, result.success, result.reason)
+                time.sleep(50)
         else:
             print("Episode not saved as per user request.")
     if args.save:
-        with open(file, "a") as f:
-            f.write(f"\nTotal Successes: {n_success}/{args.num_episodes}\n")
+            critic_record.save()
     print("End of rollout")

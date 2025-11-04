@@ -19,16 +19,30 @@ class Recorder:
         self.cam_height = cam_height
         self.cam_width = cam_width
         self.episode_len = episode_len
+        # End of episode flag
+        self.eoe = False
 
         for cam_name in cameras:
             self.data_dict[f'/observations/images/{cam_name}'] = []
-        
 
-    def record(self, obs, action, key_frame) -> None:
+    def record(self, obs, action, key_frame, rollout: False) -> None:
+        if self.eoe:
+            return
         qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
         self.data_dict['/observations/qpos'].append(np.concatenate((qpos, obs['grasp'])))
         self.data_dict['/observations/qvel'].append(np.concatenate((obs['robot0_joint_vel'], obs['grasp'])))
-        self.data_dict['/action'].append(action)
+        # the last zero in the action represents that the episode is not done
+        if not rollout:
+            self.data_dict['/action'].append(np.concatenate((action, [0])))
+        else:
+            # Normalize grasp and EOE
+            eoe = action[-1]
+            action[-1] = 1 if eoe >= 0.25 else 0
+            grasp = action[-2]
+            action[-2] = 1 if grasp >= 0.1 else -1
+            self.data_dict['/action'].append(action)
+            if action[-1] == 1:
+                self.eoe = True
         for cam_name in self.cameras:
             self.data_dict[f'/observations/images/{cam_name}'].append(obs[cam_name + "_image"])
         self.data_dict['/observations/key_frame'].append(key_frame)
@@ -46,7 +60,10 @@ class Recorder:
         pad_len = self.episode_len - max_timesteps
         self.data_dict['/observations/qpos'] = np.pad(self.data_dict['/observations/qpos'], ((0, pad_len), (0, 0)), mode='constant')
         self.data_dict['/observations/qvel'] = np.pad(self.data_dict['/observations/qvel'], ((0, pad_len), (0, 0)), mode='constant')
-        self.data_dict['/action'] = np.pad(self.data_dict['/action'], ((0, pad_len), (0, 0)), mode='constant')
+        action_pad = np.zeros_like(self.data_dict['/action'][0])
+        action_pad[-1] = 1  # indicate the end of the episode
+        action_full_pad = np.full((pad_len, action_pad.shape[0]), action_pad)
+        self.data_dict['/action'] = np.concatenate((self.data_dict['/action'], action_full_pad))
         for cam_name in self.cameras:
             self.data_dict[f'/observations/images/{cam_name}'] = np.pad(self.data_dict[f'/observations/images/{cam_name}'], ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
         self.data_dict['/observations/key_frame'] = np.pad(self.data_dict['/observations/key_frame'], (0, pad_len), mode='constant')
@@ -68,7 +85,7 @@ class Recorder:
             qpos = obs.create_dataset('qpos', (self.episode_len, 8))
             qvel = obs.create_dataset('qvel', (self.episode_len, 8))
             # image = obs.create_dataset("image", (episode_len, 240, 320, 3), dtype='uint8', chunks=(1, 240, 320, 3))
-            action = root.create_dataset('action', (self.episode_len, 7))
+            action = root.create_dataset('action', (self.episode_len, len(self.data_dict['/action'][0])))
             key_frame = obs.create_dataset('key_frame', (self.episode_len,), dtype='bool')
             
             for name, array in self.data_dict.items():

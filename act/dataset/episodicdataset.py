@@ -105,6 +105,38 @@ def get_norm_stats(dataset_dir, num_episodes):
 
     return stats
 
+def combined_sdev_mean(n1, mean1, std1, n2, mean2, std2):
+    combined_mean = (n1 * mean1 + n2 * mean2) / (n1 + n2)
+    total = n1 + n2
+    
+    numerator = (
+        (n1 - 1) * std1**2 * (total - 1)+
+        (n2 - 1) * std2**2 * (total - 1)+
+        n1 * n2 * (mean1 - mean2)**2
+    )
+
+    denominator = (total - 1) * total
+
+    combined_std = np.sqrt(numerator / denominator)
+
+    return combined_std, combined_mean
+
+def get_combined_norm_stats(base_stats, new_stats, num_base, num_new):
+    comb_qpos_std, comb_qpos_mean = combined_sdev_mean(num_base, base_stats['qpos_mean'], base_stats['qpos_std'],
+                                    num_new, new_stats['qpos_mean'], new_stats['qpos_std'])
+    comb_action_std, comb_action_mean = combined_sdev_mean(num_base, base_stats['action_mean'], base_stats['action_std'],
+                                      num_new, new_stats['action_mean'], new_stats['action_std'])
+    combined_stats = {
+        "action_mean": comb_action_mean,
+        "action_std": comb_action_std,
+        "qpos_mean": comb_qpos_mean,
+        "qpos_std": comb_qpos_std,
+        "example_qpos": new_stats['example_qpos'],
+        "n": num_base + num_new
+    }
+    return combined_stats
+
+
 def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val):
     print(f'\nData from: {dataset_dir}\n')
     # obtain train test split

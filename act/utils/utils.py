@@ -105,4 +105,4 @@ def get_weights_dir(data_dir: str, task: str, version: str):
     return f"{data_dir}/{task}/weights/{version}"
 
 def get_eval_result_file(data_dir: str, task: str, version: str):
-    return os.path.join(get_episodes_dir(data_dir, task, version), f"eval-result-{task}-{version}-sim.txt")
+    return os.path.join(get_episodes_dir(data_dir, task, version), f"eval-result-{task}-{version}.txt")

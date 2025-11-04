@@ -1,10 +1,12 @@
 
 import json
+import time
 from PIL import Image
 import io
 import h5py
 from google import genai
 from google.genai import types
+from google.genai import errors
 import os
 
 class success:
@@ -97,12 +99,19 @@ class Critic:
                     mime_type='image/png',
                 ))
 
-        
-        # Call the Gemini API to get the critic's evaluation
-        response = self.gem_client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=contents,
-        )
+        try:
+            # Call the Gemini API to get the critic's evaluation
+            response = self.gem_client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=contents,
+            )
+        except errors.ServerError as e:
+            # retry one more time in case of server error
+            time.sleep(5)
+            response = self.gem_client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=contents,
+            )
         
         return success(response.text)
     

@@ -24,7 +24,7 @@ TASK_CONFIG = {
     'dataset_dir': DATA_DIR,
     'episode_len': 600,
     'state_dim': 8,
-    'action_dim': 7,
+    'action_dim': 8,
     'cam_width': 256,
     'cam_height': 256,
     'camera_names': ["robot0_eye_in_hand", "frontview", "birdview"],
@@ -49,18 +49,18 @@ POLICY_CONFIG = {
     'policy_class': 'ACT',
     'temporal_agg': False,
     'state_dim': 8,
-    'action_dim': 7
+    'action_dim': 8
 }
 
 # finetuning config
 FINETUNING_POLICY_CONFIG = {
-    'lr': 1e-8,
+    'lr': 1e-7,
     'device': device,
     'num_queries': 100,
     'kl_weight': 10,
     'hidden_dim': 512,
     'dim_feedforward': 3200,
-    'lr_backbone': 1e-8,
+    'lr_backbone': 1e-7,
     'backbone': 'resnet18',
     'enc_layers': 4,
     'dec_layers': 7,
@@ -69,7 +69,7 @@ FINETUNING_POLICY_CONFIG = {
     'policy_class': 'ACT',
     'temporal_agg': False,
     'state_dim': 8,
-    'action_dim': 7
+    'action_dim': 8
 }
 
 # training config
