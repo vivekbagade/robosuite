@@ -6,4 +6,4 @@ from .jaco_robot import Jaco
 from .kinova3_robot import Kinova3
 from .iiwa_robot import IIWA
 from .ur5e_robot import UR5e
-from .openarm_robot import OpenArm
+from .openarm_bimanual_robot import OpenArmBimanual

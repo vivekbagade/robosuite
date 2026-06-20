@@ -3,29 +3,27 @@
   <default>
     <!-- <geom friction="0.0001" margin="0.0005" /> -->
     <joint stiffness="0" ref="0.0" />
-    <default class="robot">
-      <default class="motor_DM8009">
-        <joint frictionloss="0.1" damping="0.4" limited="true" type="hinge" />
-        <motor forcelimited="true" forcerange="-40 40" />
-      </default>
-      <default class="motor_DM4340">
-        <joint frictionloss="0.1" damping="0.4" limited="true" type="hinge" />
-        <motor forcelimited="true" forcerange="-27 27" />
-      </default>
-      <default class="motor_DM4310">
-        <joint frictionloss="0.1" damping="0.4" limited="true" type="hinge" />
-        <motor forcelimited="true" forcerange="-7 7" />
-      </default>
+    <default class="motor_DM8009">
+      <joint frictionloss="0.1" damping="0.4" limited="true" type="hinge" />
+      <motor forcelimited="true" forcerange="-40 40" />
+    </default>
+    <default class="motor_DM4340">
+      <joint frictionloss="0.1" damping="0.4" limited="true" type="hinge" />
+      <motor forcelimited="true" forcerange="-27 27" />
+    </default>
+    <default class="motor_DM4310">
+      <joint frictionloss="0.1" damping="0.4" limited="true" type="hinge" />
+      <motor forcelimited="true" forcerange="-7 7" />
+    </default>
 
-      <default class="collision">
-        <geom material="collision_material" condim="3" conaffinity="1" priority="1" group="3"
-          solref="0.005 1" friction="1 0.01 0.01" />
-        <!-- <material name="collision_material" rgba="1 0 0 0.5" specular="0.2" shininess="0.1"/> -->
-        <equality solimp="0.99 0.999 1e-05" solref="0.005 1" />
-      </default>
-      <default class="visual">
-        <geom material="visualgeom" contype="0" conaffinity="0" group="2" />
-      </default>
+    <default class="collision">
+      <geom material="collision_material" condim="3" conaffinity="1" priority="1" group="3"
+        solref="0.005 1" friction="1 0.01 0.01" />
+      <!-- <material name="collision_material" rgba="1 0 0 0.5" specular="0.2" shininess="0.1"/> -->
+      <equality solimp="0.99 0.999 1e-05" solref="0.005 1" />
+    </default>
+    <default class="visual">
+      <geom material="visualgeom" contype="0" conaffinity="0" group="2" />
     </default>
   </default>
 
@@ -235,7 +233,7 @@
                       <geom name="openarm_left_link7_visual_1" pos="0.0 -0.0 -0.5585"
                         quat="1.0 0.0 0.0 0.0" material="matte_black" type="mesh"
                         mesh="link7_1_left.obj" class="visual" />
-                      <body name="openarm_left_link8" pos="1e-06 0.0205 0.0" quat="1.0 0.0 0.0 0.0">
+                      <body name="left_hand" pos="1e-06 0.0205 0.0" quat="1.0 0.0 0.0 0.0">
 
                       </body>
                     </body>
@@ -368,8 +366,8 @@
                       <geom name="openarm_right_link7_visual_1" pos="0.0 -0.0 -0.5585"
                         quat="1.0 0.0 0.0 0.0" material="matte_black" type="mesh" mesh="link7_1.obj"
                         class="visual" />
-                      <body name="openarm_right_link8" pos="1e-06 0.0205 0.0" quat="1.0 0.0 0.0 0.0">
-
+                      <body name="right_hand" pos="1e-06 0.0205 0.0" quat="1.0 0.0 0.0 0.0">
+                        <camera mode="fixed" name="eye_in_hand" pos="0.05 0 0" quat="0 0.707108 0.707108 0" fovy="75" resolution="1024 720"/>
                       </body>
                     </body>
                   </body>
@@ -381,7 +379,7 @@
       </body>
     </body>
     <site name="world_site" pos="0 0 0" quat="1 0 0 0" />
-    <camera name="front_camera" mode="track" fovy="90.0"
+    <camera name="front_camera" mode="track" fovy="130.0"
       quat="4.329780281177467e-17 4.329780281177466e-17 0.7071067811865475 0.7071067811865476"
       pos="0.0 2.0 0.5" />
     <camera name="side_camera" mode="track" fovy="90.0"

@@ -17,7 +17,7 @@ class OpenArmBimanual(ManipulatorModel):
 
     @property
     def default_mount(self):
-        return ""
+        return "RethinkMinimalMount"
 
     @property
     def default_gripper(self):
