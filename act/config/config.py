@@ -2,20 +2,17 @@ import os
 # fallback to cpu if mps is not available for specific operations
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = "1"
 import torch
-import sys
 
 # data directory
 DATA_DIR = 'robosuite/data/'
 
-# checkpoint directory
-CHECKPOINT_DIR = '/home/vivekbagade/dev/src/vivekbagade/robosuite/checkpoints/'
-
 device = ''
 if torch.cuda.is_available():
     device = 'cuda'
+elif torch.backends.mps.is_available():
+    device = 'mps'
 else:
-    sys.exit('No GPU found')
-#if torch.backends.mps.is_available(): device = 'mps'
+    raise RuntimeError('No GPU found (CUDA or MPS required)')
 os.environ['DEVICE'] = device
 
 
@@ -24,7 +21,7 @@ TASK_CONFIG = {
     'dataset_dir': DATA_DIR,
     'episode_len': 600,
     'state_dim': 8,
-    'action_dim': 8,
+    'action_dim': 7,
     'cam_width': 256,
     'cam_height': 256,
     'camera_names': ["robot0_eye_in_hand", "frontview", "birdview"],
@@ -49,7 +46,7 @@ POLICY_CONFIG = {
     'policy_class': 'ACT',
     'temporal_agg': False,
     'state_dim': 8,
-    'action_dim': 8
+    'action_dim': 7
 }
 
 # finetuning config
@@ -69,7 +66,7 @@ FINETUNING_POLICY_CONFIG = {
     'policy_class': 'ACT',
     'temporal_agg': False,
     'state_dim': 8,
-    'action_dim': 8
+    'action_dim': 7
 }
 
 # training config
@@ -79,7 +76,6 @@ TRAIN_CONFIG = {
     'batch_size_val': 8,
     'batch_size_train': 8,
     'eval_ckpt_name': 'policy_last.ckpt',
-    'checkpoint_dir': CHECKPOINT_DIR
 }
 
 # finetuning_train_config

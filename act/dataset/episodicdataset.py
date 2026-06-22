@@ -27,10 +27,11 @@ class EpisodicDataset(torch.utils.data.Dataset):
             is_sim = root.attrs['sim']
             original_action_shape = root['/action'].shape
             episode_len = original_action_shape[0]
+            real_len = int(root.attrs.get('real_len', episode_len))
             if sample_full_episode:
                 start_ts = 0
             else:
-                start_ts = np.random.choice(episode_len)
+                start_ts = np.random.choice(real_len)
             # get observation at start_ts only
             qpos = root['/observations/qpos'][start_ts]
             qvel = root['/observations/qvel'][start_ts]
@@ -50,6 +51,11 @@ class EpisodicDataset(torch.utils.data.Dataset):
         padded_action[:action_len] = action
         is_pad = np.zeros(episode_len)
         is_pad[action_len:] = 1
+        # mask recorder-level padding (zero images, zero motion) — not covered by dataset-level is_pad
+        offset = start_ts if is_sim else max(0, start_ts - 1)
+        recorder_pad_start = real_len - offset
+        if recorder_pad_start < action_len:
+            is_pad[max(0, recorder_pad_start):action_len] = 1
 
         # new axis for different cameras
         all_cam_images = []
@@ -77,47 +83,48 @@ class EpisodicDataset(torch.utils.data.Dataset):
 def get_norm_stats(dataset_dir, num_episodes):
     all_qpos_data = []
     all_action_data = []
+    example_qpos = None
+    total_real_steps = 0
     for episode_idx in range(num_episodes):
         dataset_path = os.path.join(dataset_dir, f'episode_{episode_idx}.hdf5')
         with h5py.File(dataset_path, 'r') as root:
             qpos = root['/observations/qpos'][()]
-            qvel = root['/observations/qvel'][()]
             action = root['/action'][()]
-        all_qpos_data.append(torch.from_numpy(qpos))
-        all_action_data.append(torch.from_numpy(action))
-    all_qpos_data = torch.stack(all_qpos_data)
-    all_action_data = torch.stack(all_action_data)
-    all_action_data = all_action_data
+            real_len = int(root.attrs.get('real_len', len(action)))
+        all_qpos_data.append(torch.from_numpy(qpos[:real_len]))
+        all_action_data.append(torch.from_numpy(action[:real_len]))
+        total_real_steps += real_len
+        example_qpos = qpos
+    # cat across episodes so padding frames are excluded from statistics
+    all_qpos_data = torch.cat(all_qpos_data)    # (total_real_steps, state_dim)
+    all_action_data = torch.cat(all_action_data) # (total_real_steps, action_dim)
 
     # normalize action data
-    action_mean = all_action_data.mean(dim=[0, 1], keepdim=True)
-    action_std = all_action_data.std(dim=[0, 1], keepdim=True)
+    action_mean = all_action_data.mean(dim=0, keepdim=True)
+    action_std = all_action_data.std(dim=0, keepdim=True)
     action_std = torch.clip(action_std, 1e-2, np.inf) # clipping
 
     # normalize qpos data
-    qpos_mean = all_qpos_data.mean(dim=[0, 1], keepdim=True)
-    qpos_std = all_qpos_data.std(dim=[0, 1], keepdim=True)
+    qpos_mean = all_qpos_data.mean(dim=0, keepdim=True)
+    qpos_std = all_qpos_data.std(dim=0, keepdim=True)
     qpos_std = torch.clip(qpos_std, 1e-2, np.inf) # clipping
 
     stats = {"action_mean": action_mean.numpy().squeeze(), "action_std": action_std.numpy().squeeze(),
              "qpos_mean": qpos_mean.numpy().squeeze(), "qpos_std": qpos_std.numpy().squeeze(),
-             "example_qpos": qpos}
+             "example_qpos": example_qpos, "n": total_real_steps}
 
     return stats
 
 def combined_sdev_mean(n1, mean1, std1, n2, mean2, std2):
     combined_mean = (n1 * mean1 + n2 * mean2) / (n1 + n2)
     total = n1 + n2
-    
+
     numerator = (
-        (n1 - 1) * std1**2 * (total - 1)+
-        (n2 - 1) * std2**2 * (total - 1)+
-        n1 * n2 * (mean1 - mean2)**2
+        (n1 - 1) * std1**2
+        + (n2 - 1) * std2**2
+        + n1 * n2 * (mean1 - mean2)**2 / total
     )
-
-    denominator = (total - 1) * total
-
-    combined_std = np.sqrt(numerator / denominator)
+    combined_std = np.sqrt(numerator / (total - 1))
 
     return combined_std, combined_mean
 
@@ -137,7 +144,7 @@ def get_combined_norm_stats(base_stats, new_stats, num_base, num_new):
     return combined_stats
 
 
-def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val):
+def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, norm_stats=None):
     print(f'\nData from: {dataset_dir}\n')
     # obtain train test split
     train_ratio = 0.8
@@ -146,7 +153,8 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     val_indices = shuffled_indices[int(train_ratio * num_episodes):]
 
     # obtain normalization stats for qpos and action
-    norm_stats = get_norm_stats(dataset_dir, num_episodes)
+    if norm_stats is None:
+        norm_stats = get_norm_stats(dataset_dir, num_episodes)
 
     # construct dataset and dataloader
     train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats)

@@ -49,8 +49,8 @@ policy_config = FINETUNING_POLICY_CONFIG
 
 
 def copy_base_episodes(new_dir, base_versions):
-    num_new_episodes = len([name for name in os.listdir(new_dir) if os.path.isfile(os.path.join(new_dir, name))])
-    idx = len(os.listdir(new_dir))
+    num_new_episodes = count_episodes(new_dir)
+    idx = count_episodes(new_dir)
     num_episodes_to_copy = 3 * num_new_episodes
     src_list = [get_episodes_dir(DATA_DIR.value, TASK.value, version) for version in base_versions]
     files_to_copy = get_file_paths_to_copy(src_list, num_episodes_to_copy)
@@ -79,7 +79,7 @@ if __name__ == '__main__':
 
     # Copy episodes to /tmp/act-finetuning-xxx
     tmp_episodes_dir = copy_to_tmp(new_episodes_dir)
-    num_new_episodes = len(os.listdir(tmp_episodes_dir))
+    num_new_episodes = count_episodes(tmp_episodes_dir)
     
     model_tree = ModelTree.load_from_disk(DATA_DIR.value, TASK.value)
     model_tree.add_new_version(NEW_VERSION.value, {'description': 'Finetuning test'})
@@ -92,25 +92,30 @@ if __name__ == '__main__':
 
     # To stop catastrophic forgetting
     copy_base_episodes(tmp_episodes_dir, base_episode_edges)
-    num_episodes = len(os.listdir(tmp_episodes_dir))
+    num_episodes = count_episodes(tmp_episodes_dir)
 
     # get norm stats
     # load base stats
     base_stats_path = os.path.join(base_weights_dir, 'dataset_stats.pkl')
     with open(base_stats_path, 'rb') as f:
         base_stats = pickle.load(f)
-    num_base_episodes = base_stats.get('n', 1) # default to 1 to avoid division by zero
+    num_base = base_stats.get('n')
+    if num_base is None:
+        print("Warning: base stats missing 'n' (old format). Combined stats may be inaccurate.")
+        num_base = 1
 
-    # calculate stats for new episodes
+    # calculate stats for new episodes only (before base episodes were appended to tmp dir)
     new_stats = get_norm_stats(tmp_episodes_dir, num_new_episodes)
+    num_new = new_stats['n']
 
     # combine stats
-    stats = get_combined_norm_stats(base_stats, new_stats, num_base_episodes, num_new_episodes)
+    stats = get_combined_norm_stats(base_stats, new_stats, num_base, num_new)
     print(f'Combined stats: {stats}')
 
-    # load data
+    # load data — pass combined stats so training and inference use identical normalization
     train_dataloader, val_dataloader, _, _ = load_data(tmp_episodes_dir, num_episodes, task_cfg['camera_names'],
-                                                            train_cfg['batch_size_train'], train_cfg['batch_size_val'])
+                                                            train_cfg['batch_size_train'], train_cfg['batch_size_val'],
+                                                            norm_stats=stats)
     # save stats
     stats_path = os.path.join(checkpoint_dir, f'dataset_stats.pkl')
     with open(stats_path, 'wb') as f:

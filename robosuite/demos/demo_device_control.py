@@ -295,7 +295,7 @@ if __name__ == "__main__":
                 current_ncon = env.sim.data.ncon
             with lock:
                 if record:
-                    recorder.record(obs, action, key_frame, False)
+                    recorder.record(obs, action, key_frame)
 
             # Step through the simulation and render
             obs, reward, done, info = env.step(action)

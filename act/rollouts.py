@@ -2,7 +2,6 @@
 
 """
 import pickle
-import time
 from config.config import POLICY_CONFIG, TRAIN_CONFIG, device # must import first
 import numpy as np
 import robosuite as suite
@@ -70,7 +69,7 @@ if __name__ == "__main__":
     else:
         args.config = None
     
-    config["obj_pos_override"] = [0.210, -0.407, 0.885]
+    # config["obj_pos_override"] = [0.210, -0.407, 0.885]
 
     # Create environment
     env = suite.make(
@@ -110,9 +109,6 @@ if __name__ == "__main__":
     query_frequency = POLICY_CONFIG['num_queries']
     critic = Critic()
     critic_record = CriticRecord(args.data_dir, args.environment, f'{args.version}-sim', args.task_definition)
-    episodes_dir = get_episodes_dir(args.data_dir, args.environment, args.version)
-
-    n_success = 0
 
     for i in range(args.num_episodes):
         current_ncon = 0
@@ -120,7 +116,7 @@ if __name__ == "__main__":
         all_actions = None
         print(f"Episode {i+1} in progress...")
         recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"],
-                         256, 256, 800, "PickPlaceCan", args.data_dir, f"{args.version}-sim")
+                         256, 256, 800, args.environment, args.data_dir, f"{args.version}-sim")
         for t in range(800):
             qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
             grasp = [0]
@@ -140,21 +136,17 @@ if __name__ == "__main__":
                 cur_action = cur_action.squeeze(0).cpu().numpy()
                 cur_action = post_process(cur_action)
 
-            # If action is none, then this a reset so we should break
-            if cur_action is None:
-                print('No action')
-                break
             # record the current obs and corresponding action picked
-            obs['grasp'] = np.array([0]) if grasp == -1 else np.array([1])
+            obs['grasp'] = np.array([0]) if grasp[0] == -1 else np.array([1])
             key_frame = False
             # Check if the number of contacts has changed, if so, record a key frame
             if abs(current_ncon - env.sim.data.ncon) > 0 and t >= collision_init_time:
                 key_frame = True
             current_ncon = env.sim.data.ncon
-            recorder.record(obs, cur_action, key_frame, True)
+            recorder.record(obs, cur_action, key_frame)
 
             # Omit the last item since the last item indicates episode end
-            obs, reward, done, info = env.step(cur_action[:7])
+            obs, reward, done, info = env.step(cur_action)
             
             
             env.render()
@@ -164,7 +156,6 @@ if __name__ == "__main__":
             if args.critic:
                 result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
                 critic_record.record_episode(episode_path, result.success, result.reason)
-                time.sleep(50)
         else:
             print("Episode not saved as per user request.")
     if args.save:

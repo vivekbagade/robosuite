@@ -92,7 +92,7 @@ class ACTTrainer:
             with torch.inference_mode():
                 policy.eval()
                 epoch_dicts = []
-                for batch_idx, data in enumerate(val_dataloader):
+                for _, data in enumerate(val_dataloader):
                     forward_dict = self.forward_pass(data, policy)
                     epoch_dicts.append(forward_dict)
                 epoch_summary = compute_dict_mean(epoch_dicts)
@@ -111,7 +111,8 @@ class ACTTrainer:
             # training
             policy.train()
             optimizer.zero_grad()
-            for batch_idx, data in enumerate(train_dataloader):
+            epoch_start = len(train_history)
+            for _, data in enumerate(train_dataloader):
                 forward_dict = self.forward_pass(data, policy)
                 # backward
                 loss = forward_dict['loss']
@@ -119,7 +120,7 @@ class ACTTrainer:
                 optimizer.step()
                 optimizer.zero_grad()
                 train_history.append(detach_dict(forward_dict))
-            epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
+            epoch_summary = compute_dict_mean(train_history[epoch_start:])
             epoch_train_loss = epoch_summary['loss']
             print(f'Train loss: {epoch_train_loss:.5f}')
             summary_string = ''
@@ -134,3 +135,8 @@ class ACTTrainer:
 
         ckpt_path = os.path.join(self.checkpoint_dir, f'policy_last.ckpt')
         torch.save(policy.state_dict(), ckpt_path)
+        if best_ckpt_info is not None:
+            best_epoch, best_val_loss, best_state_dict = best_ckpt_info
+            best_ckpt_path = os.path.join(self.checkpoint_dir, 'policy_best.ckpt')
+            torch.save(best_state_dict, best_ckpt_path)
+            print(f'Best checkpoint (epoch {best_epoch}, val loss {best_val_loss:.5f}) saved to {best_ckpt_path}')

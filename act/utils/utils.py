@@ -98,6 +98,9 @@ def get_file_paths_to_copy(src_list, num_to_copy):
             
     return file_paths_to_copy
 
+def count_episodes(dir_path: str) -> int:
+    return len([f for f in os.listdir(dir_path) if f.endswith('.hdf5')])
+
 def get_episodes_dir(data_dir: str, task: str, version: str):
     return f"{data_dir}/{task}/episodes/{version}"
 

@@ -69,9 +69,6 @@ class ModelTree:
         self._add_node(new_version)
         self._add_node(base_version)
 
-        if base_version not in self.adj_list:
-            raise ValueError(f"'{base_version}' does not exist in the metadata.")
-
         # Add the edge to the source node's list for the given edge type
         if base_version not in self.adj_list[new_version][edge_type]:
             self.adj_list[new_version][edge_type].append(base_version)
@@ -148,10 +145,9 @@ class ModelTree:
         try:
             with open(file, 'r') as f:
                 loaded = json.load(f)
-            new_metadata = cls()
+            new_metadata = cls(data_dir, task)
             new_metadata.adj_list = loaded.get('adj_list', {})
             new_metadata.node_metadata = loaded.get('node_metadata', {})
-            new_metadata.data_dir = data_dir
             return new_metadata
         except (FileNotFoundError, json.JSONDecodeError, IOError):
             return None
@@ -208,14 +204,14 @@ class ModelTree:
             if len(result) >= lookback:
                 break
             result[adj] = True
-        
+
         for adj in cur_adj_list:
             if len(result) >= lookback:
                 break
             next_result = self._walk_back(adj, edge_type, lookback - len(result))
             result.update(next_result)
 
-        return result
+        return list(result.keys())
 
 
     def walk_back_episode(self, version: str, lookback: int = 1):

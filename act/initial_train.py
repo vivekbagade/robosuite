@@ -11,7 +11,7 @@ from train import ACTTrainer
 from model_tree import ModelTree
 
 VERSION = flags.DEFINE_string(
-    "version", "1.0.0", "version to finetune"
+    "version", "1.0.0", "version to initially train"
 )
 
 TASK = flags.DEFINE_string(
@@ -42,7 +42,7 @@ if __name__ == '__main__':
     data_dir = DATA_DIR.value
     
     episodes_dir = get_episodes_dir(DATA_DIR.value, TASK.value, VERSION.value)
-    num_episodes = len(os.listdir(episodes_dir))
+    num_episodes = count_episodes(episodes_dir)
 
     # load data
     train_dataloader, val_dataloader, stats, _ = load_data(episodes_dir, num_episodes, task_cfg['camera_names'],
@@ -52,7 +52,9 @@ if __name__ == '__main__':
     with open(stats_path, 'wb') as f:
         pickle.dump(stats, f)
     
-    model_tree = ModelTree(DATA_DIR.value, TASK.value)
+    model_tree = ModelTree.load_from_disk(DATA_DIR.value, TASK.value)
+    if model_tree is None:
+        model_tree = ModelTree(DATA_DIR.value, TASK.value)
     model_tree.add_new_version(VERSION.value, {'description': 'Initial training'})
 
     # train

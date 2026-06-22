@@ -14,20 +14,17 @@ class success:
         self.success = success
         self.reason = reason
 
-    def __init__(self, response: str):
+    @classmethod
+    def from_response(cls, response: str):
         try:
-            # Remove leading prefix of ```json
             if response.startswith("```json"):
                 response = response[8:].strip()
-            # Remove trailing suffix of ```
             if response.endswith("```"):
                 response = response[:-3].strip()
             data = json.loads(response)
-            self.success = data.get("success", False)
-            self.reason = data.get("reason", "No reason provided")
+            return cls(data.get("success", False), data.get("reason", "No reason provided"))
         except json.JSONDecodeError as e:
-            self.success = False
-            self.reason = f"Error parsing response: {str(e)}"
+            return cls(False, f"Error parsing response: {str(e)}")
 
     def to_dict(self):
         return {
@@ -113,7 +110,7 @@ class Critic:
                 contents=contents,
             )
         
-        return success(response.text)
+        return success.from_response(response.text)
     
 # critic = Critic()
 # print(critic.critic_episode_from_frontview("/act-data/PickPlaceCan/episodes/1.0.0-sim/episode_19.hdf5", "The robot should pick up the red can from the bin where it is initially located to a smaller bin on the right. There are multiple bins on the right. The correct bin has a silhouette of a can on it. In the last image, you should check that the can is visible in the correct bin."))
