@@ -1,26 +1,36 @@
 import h5py
 import numpy as np
 import os
+import threading
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
 
 class Recorder:
+    QPOS      = '/observations/qpos'
+    QVEL      = '/observations/qvel'
+    KEY_FRAME = '/observations/key_frame'
+    ACTION    = '/action'
+
+    @staticmethod
+    def _cam_key(cam_name: str) -> str:
+        return f'/observations/images/{cam_name}'
+
     def __init__(self, cameras, cam_height, cam_width, episode_len, task, data_dir, version) -> None:
         self.episodes_dir = f"{data_dir}/{task}/episodes/{version}"
-        self.data_dict = {
-            '/observations/qpos': [],
-            '/observations/qvel': [],
-            '/observations/key_frame': [],
-            '/action': [],
-        }
+        self._lock = threading.Lock()
         self.cameras = cameras
         self.task = task
         self.cam_height = cam_height
         self.cam_width = cam_width
         self.episode_len = episode_len
-        for cam_name in cameras:
-            self.data_dict[f'/observations/images/{cam_name}'] = []
+        self.data_dict = self._empty_data_dict()
+
+    def _empty_data_dict(self) -> dict:
+        d = {self.QPOS: [], self.QVEL: [], self.KEY_FRAME: [], self.ACTION: []}
+        for cam_name in self.cameras:
+            d[self._cam_key(cam_name)] = []
+        return d
 
     @staticmethod
     def _discretize_grasp(action):
@@ -30,18 +40,27 @@ class Recorder:
 
     def _record_obs(self, obs, key_frame):
         qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
-        self.data_dict['/observations/qpos'].append(np.concatenate((qpos, obs['grasp'])))
-        self.data_dict['/observations/qvel'].append(np.concatenate((obs['robot0_joint_vel'], obs['grasp'])))
+        self.data_dict[self.QPOS].append(np.concatenate((qpos, obs['grasp'])))
+        self.data_dict[self.QVEL].append(np.concatenate((obs['robot0_joint_vel'], obs['grasp'])))
         for cam_name in self.cameras:
-            self.data_dict[f'/observations/images/{cam_name}'].append(obs[cam_name + "_image"])
-        self.data_dict['/observations/key_frame'].append(key_frame)
+            self.data_dict[self._cam_key(cam_name)].append(obs[cam_name + "_image"])
+        self.data_dict[self.KEY_FRAME].append(key_frame)
 
     def record(self, obs, action, key_frame) -> None:
-        self.data_dict['/action'].append(self._discretize_grasp(action))
-        self._record_obs(obs, key_frame)
+        with self._lock:
+            self.data_dict[self.ACTION].append(self._discretize_grasp(action))
+            self._record_obs(obs, key_frame)
+
+    def reset(self) -> None:
+        with self._lock:
+            self.data_dict = self._empty_data_dict()
 
     def save(self) -> str:
-        max_timesteps = len(self.data_dict['/observations/qpos'])
+        # Snapshot under the lock so record() can proceed immediately.
+        with self._lock:
+            snapshot = {k: list(v) for k, v in self.data_dict.items()}
+
+        max_timesteps = len(snapshot[self.QPOS])
         if max_timesteps < 10:
             print('Not enough steps to save episode')
             return
@@ -49,39 +68,44 @@ class Recorder:
             print('recording longer than expected, skipping save')
             return
 
-        # padding to episode_len        
+        # padding to episode_len
         pad_len = self.episode_len - max_timesteps
-        self.data_dict['/observations/qpos'] = np.pad(self.data_dict['/observations/qpos'], ((0, pad_len), (0, 0)), mode='constant')
-        self.data_dict['/observations/qvel'] = np.pad(self.data_dict['/observations/qvel'], ((0, pad_len), (0, 0)), mode='constant')
-        action_pad = np.zeros_like(self.data_dict['/action'][0])
-        action_full_pad = np.full((pad_len, action_pad.shape[0]), action_pad)
-        self.data_dict['/action'] = np.concatenate((self.data_dict['/action'], action_full_pad))
+        snapshot[self.QPOS] = np.pad(snapshot[self.QPOS], ((0, pad_len), (0, 0)), mode='constant')
+        snapshot[self.QVEL] = np.pad(snapshot[self.QVEL], ((0, pad_len), (0, 0)), mode='constant')
+        action_full_pad = np.full((pad_len, len(snapshot[self.ACTION][0])), 0.0)
+        snapshot[self.ACTION] = np.concatenate((snapshot[self.ACTION], action_full_pad))
         for cam_name in self.cameras:
-            self.data_dict[f'/observations/images/{cam_name}'] = np.pad(self.data_dict[f'/observations/images/{cam_name}'], ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
-        self.data_dict['/observations/key_frame'] = np.pad(self.data_dict['/observations/key_frame'], (0, pad_len), mode='constant')
+            k = self._cam_key(cam_name)
+            snapshot[k] = np.pad(snapshot[k], ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
+        snapshot[self.KEY_FRAME] = np.pad(snapshot[self.KEY_FRAME], (0, pad_len), mode='constant')
 
-        # create data dir if it doesn't exist
-        if not os.path.exists(self.episodes_dir): os.makedirs(self.episodes_dir)
-        # count number of files in the directory
-        idx = len([name for name in os.listdir(self.episodes_dir) if os.path.isfile(os.path.join(self.episodes_dir, name))])
-        dataset_path = os.path.join(self.episodes_dir, f'episode_{idx}')
+        os.makedirs(self.episodes_dir, exist_ok=True)
+        # Atomically claim a unique episode index by creating the file exclusively.
+        idx = 0
+        while True:
+            dataset_path = os.path.join(self.episodes_dir, f'episode_{idx}')
+            try:
+                fd = os.open(dataset_path + '.hdf5', os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                break
+            except FileExistsError:
+                idx += 1
+
         print(f"Saving episode to {dataset_path}.hdf5")
-        # save the data
         with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024 ** 2 * 2) as root:
             root.attrs['sim'] = True
             root.attrs['real_len'] = max_timesteps
-            obs = root.create_group('observations')
-            image = obs.create_group('images')
+            obs_grp = root.create_group('observations')
+            img_grp = obs_grp.create_group('images')
             for cam_name in self.cameras:
-                _ = image.create_dataset(cam_name, (self.episode_len, self.cam_height, self.cam_width, 3), dtype='uint8',
-                                        chunks=(1, self.cam_height, self.cam_width, 3), )
-            qpos = obs.create_dataset('qpos', (self.episode_len, 8))
-            qvel = obs.create_dataset('qvel', (self.episode_len, 8))
-            # image = obs.create_dataset("image", (episode_len, 240, 320, 3), dtype='uint8', chunks=(1, 240, 320, 3))
-            action = root.create_dataset('action', (self.episode_len, len(self.data_dict['/action'][0])))
-            key_frame = obs.create_dataset('key_frame', (self.episode_len,), dtype='bool')
-            
-            for name, array in self.data_dict.items():
+                _ = img_grp.create_dataset(cam_name, (self.episode_len, self.cam_height, self.cam_width, 3),
+                                           dtype='uint8', chunks=(1, self.cam_height, self.cam_width, 3))
+            _ = obs_grp.create_dataset('qpos', (self.episode_len, 8))
+            _ = obs_grp.create_dataset('qvel', (self.episode_len, 8))
+            _ = root.create_dataset('action', (self.episode_len, len(snapshot[self.ACTION][0])))
+            _ = obs_grp.create_dataset('key_frame', (self.episode_len,), dtype='bool')
+
+            for name, array in snapshot.items():
                 root[name][...] = array
         return dataset_path + '.hdf5'
 
