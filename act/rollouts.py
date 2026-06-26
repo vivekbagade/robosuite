@@ -38,6 +38,8 @@ if __name__ == "__main__":
     flags.DEFINE_boolean("save", True, "Whether to save the episode or not")
     flags.DEFINE_string("task_definition", "The robot should pick up the red can and place it in the right bin. The right bin has a silhouette of a can on it.", "The task definition to use for evaluation")
     flags.DEFINE_boolean("critic", True, "Whether to use the critic to evaluate the episode or not")
+    flags.DEFINE_boolean("temporal_agg", False, "Whether to use temporal ensembling (query every step and average overlapping predictions)")
+    flags.DEFINE_float("temporal_agg_k", 0.1, "Exponential decay for temporal ensembling weights (smaller = smoother, larger = more reactive)")
     FLAGS = flags.FLAGS
     FLAGS(sys.argv)
     # Parse command line arguments
@@ -106,7 +108,13 @@ if __name__ == "__main__":
     pre_process = lambda s_qpos: (s_qpos - stats['qpos_mean']) / stats['qpos_std']
     post_process = lambda a: a * stats['action_std'] + stats['action_mean']
     camera_names = POLICY_CONFIG['camera_names']
-    query_frequency = POLICY_CONFIG['num_queries']
+    num_queries = POLICY_CONFIG['num_queries']
+    max_timesteps = 800
+    action_dim = POLICY_CONFIG['action_dim']
+    # With temporal ensembling we re-query every step and blend overlapping chunks;
+    # otherwise we run open-loop, consuming one full chunk before re-querying.
+    query_frequency = 1 if args.temporal_agg else num_queries
+    query_frequency = 50
     critic = Critic()
     critic_record = CriticRecord(args.data_dir, args.environment, f'{args.version}-sim', args.task_definition)
 
@@ -114,10 +122,16 @@ if __name__ == "__main__":
         current_ncon = 0
         obs = env.reset()
         all_actions = None
+        # all_time_actions[i, j] = action that the query made at time i proposes for absolute time j
+        all_time_actions = None
+        if args.temporal_agg:
+            all_time_actions = torch.zeros(
+                [max_timesteps, max_timesteps + num_queries, action_dim]
+            ).to(device)
         print(f"Episode {i+1} in progress...")
         recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"],
                          256, 256, 800, args.environment, args.data_dir, f"{args.version}-sim")
-        for t in range(800):
+        for t in range(max_timesteps):
             qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
             grasp = [0]
             if 'grasp' in obs:
@@ -132,8 +146,23 @@ if __name__ == "__main__":
                 if t % query_frequency == 0:
                     all_actions = policy(qpos, get_image(obs, camera_names, device))
 
-                cur_action = all_actions[:, t % query_frequency]
-                cur_action = cur_action.squeeze(0).cpu().numpy()
+                if args.temporal_agg:
+                    # store this chunk against the absolute times it predicts: t .. t+num_queries-1
+                    all_time_actions[[t], t:t + num_queries] = all_actions
+                    # gather every past prediction that has an opinion about time t
+                    actions_for_curr_step = all_time_actions[:, t]
+                    populated = torch.all(actions_for_curr_step != 0, axis=1)
+                    actions_for_curr_step = actions_for_curr_step[populated]
+                    # rows are ordered oldest -> newest prediction; weight[0] (oldest) is highest.
+                    # smaller temporal_agg_k => more uniform weights => faster incorporation of new obs.
+                    exp_weights = np.exp(-args.temporal_agg_k * np.arange(len(actions_for_curr_step)))
+                    exp_weights = exp_weights / exp_weights.sum()
+                    exp_weights = torch.from_numpy(exp_weights).to(device).unsqueeze(dim=1)
+                    raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
+                else:
+                    raw_action = all_actions[:, t % query_frequency]
+
+                cur_action = raw_action.squeeze(0).cpu().numpy()
                 cur_action = post_process(cur_action)
 
             # record the current obs and corresponding action picked
