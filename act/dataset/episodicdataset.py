@@ -134,10 +134,12 @@ def get_combined_norm_stats(base_stats, new_stats, num_base, num_new):
     comb_action_std, comb_action_mean = combined_sdev_mean(num_base, base_stats['action_mean'], base_stats['action_std'],
                                       num_new, new_stats['action_mean'], new_stats['action_std'])
     combined_stats = {
-        "action_mean": comb_action_mean,
-        "action_std": comb_action_std,
-        "qpos_mean": comb_qpos_mean,
-        "qpos_std": comb_qpos_std,
+        # cast to float32: the std computation promotes to float64, which would
+        # upcast normalized batches and break the float32 model (double != float)
+        "action_mean": np.asarray(comb_action_mean, dtype=np.float32),
+        "action_std": np.asarray(comb_action_std, dtype=np.float32),
+        "qpos_mean": np.asarray(comb_qpos_mean, dtype=np.float32),
+        "qpos_std": np.asarray(comb_qpos_std, dtype=np.float32),
         "example_qpos": new_stats['example_qpos'],
         "n": num_base + num_new
     }

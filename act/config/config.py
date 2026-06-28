@@ -51,7 +51,7 @@ POLICY_CONFIG = {
 
 # finetuning config
 FINETUNING_POLICY_CONFIG = {
-    'lr': 1e-7,
+    'lr': 1e-6,
     'device': device,
     'num_queries': 100,
     'kl_weight': 10,
@@ -81,7 +81,7 @@ TRAIN_CONFIG = {
 # finetuning_train_config
 FINETUNING_TRAIN_CONFIG = {
     'seed': 42,
-    'num_epochs': 200,
+    'num_epochs': 300,
     'batch_size_val': 8,
     'batch_size_train': 8,
     'eval_ckpt_name': 'policy_last.ckpt',

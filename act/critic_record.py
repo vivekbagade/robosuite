@@ -45,7 +45,7 @@ class CriticRecord:
         self.episode_data.append(episode_data)
         if success:
             self.successful_episode_paths.append(episode_data.episode_path)
-        print(f"Recorded episode: {episode_path}, Success: {success}, Reason: {reason}")
+        return episode_data
 
     def read_successful_episodes(self):
         if not os.path.exists(self.eval_result_file):

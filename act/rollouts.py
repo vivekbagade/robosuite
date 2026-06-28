@@ -20,6 +20,26 @@ from critic_record import CriticRecord
 
 collision_init_time = 100
 
+
+def print_progress_bar(results):
+    """Print a persistent progress bar of rollout outcomes.
+
+    Each rollout is a block: green for success, red for failure. Followed by
+    num_successes/num_rollouts and the success percentage.
+    """
+    GREEN_BG = "\033[42m"
+    RED_BG = "\033[41m"
+    RESET = "\033[0m"
+
+    num_rollouts = len(results)
+    num_successes = sum(1 for r in results if r)
+    percentage = (num_successes / num_rollouts * 100) if num_rollouts else 0
+
+    bar = "".join(f"{GREEN_BG if r else RED_BG} {RESET}" for r in results)
+    # \r returns to start of the line and \033[K clears it so the bar updates in place
+    print(f"\r\033[KRollouts: [{bar}] {num_successes}/{num_rollouts} ({percentage:.1f}%)", end="", flush=True)
+
+
 if __name__ == "__main__":
 
     flags.DEFINE_string("environment", "Lift", "Environment to use")
@@ -118,6 +138,7 @@ if __name__ == "__main__":
     critic = Critic()
     critic_record = CriticRecord(args.data_dir, args.environment, f'{args.version}-sim', args.task_definition)
 
+    rollout_results = []
     for i in range(args.num_episodes):
         current_ncon = 0
         obs = env.reset()
@@ -128,7 +149,6 @@ if __name__ == "__main__":
             all_time_actions = torch.zeros(
                 [max_timesteps, max_timesteps + num_queries, action_dim]
             ).to(device)
-        print(f"Episode {i+1} in progress...")
         recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"],
                          256, 256, 800, args.environment, args.data_dir, f"{args.version}-sim")
         for t in range(max_timesteps):
@@ -180,13 +200,20 @@ if __name__ == "__main__":
             
             env.render()
         # Save the episode data
+        success = False
         if args.save:
             episode_path = recorder.save()
             if args.critic:
                 result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
+                success = result.success
                 critic_record.record_episode(episode_path, result.success, result.reason)
         else:
             print("Episode not saved as per user request.")
+
+        # Persistently show the running rollout progress bar after each rollout
+        rollout_results.append(success)
+        print_progress_bar(rollout_results)
+    print()  # finish the in-place progress bar line
     if args.save:
             critic_record.save()
     print("End of rollout")
