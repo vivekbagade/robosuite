@@ -221,7 +221,7 @@ if __name__ == "__main__":
             # so trim the trailing frames where the action vector stops changing.
             episode_path = recorder.save(trim_still_tail=True)
             if args.critic:
-                result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
+                result = critic.critic_episode_from_frontview_video(episode_path, args.task_definition)
                 success = result.success
                 critic_record.record_episode(episode_path, result.success, result.reason)
         else:

@@ -1,7 +1,9 @@
 
 import json
+import tempfile
 import time
 from PIL import Image
+import imageio
 import io
 import h5py
 from google import genai
@@ -41,6 +43,26 @@ class Critic:
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
         self.gem_client = genai.Client(api_key=api_key)
+        self.gen_config = types.GenerateContentConfig(
+            temperature=0,
+            response_mime_type='application/json',
+        )
+
+    def _generate(self, contents):
+        try:
+            return self.gem_client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=contents,
+                config=self.gen_config,
+            )
+        except errors.ServerError:
+            # retry one more time in case of server error
+            time.sleep(5)
+            return self.gem_client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=contents,
+                config=self.gen_config,
+            )
 
 
     # Extract key frames from an episode file. This function reads the HDF5 file and retrieves the key frames
@@ -96,22 +118,43 @@ class Critic:
                     mime_type='image/png',
                 ))
 
+        response = self._generate(contents)
+        return success.from_response(response.text)
+
+    # Encode all frames from one camera in an episode file into a compressed
+    # H.264 mp4 and return the raw video bytes.
+    def extract_video(self, episode_path, cam_name='frontview', fps=20):
+        with h5py.File(episode_path, 'r') as root:
+            frames = root[f'/observations/images/{cam_name}'][()]
+        if cam_name == 'frontview':
+            # frontview frames are recorded upside down, flip vertically
+            frames = frames[:, ::-1, :, :]
+        fd, tmp_path = tempfile.mkstemp(suffix='.mp4')
+        os.close(fd)
         try:
-            # Call the Gemini API to get the critic's evaluation
-            response = self.gem_client.models.generate_content(
-                model="gemini-2.5-pro",
-                contents=contents,
-            )
-        except errors.ServerError as e:
-            # retry one more time in case of server error
-            time.sleep(5)
-            response = self.gem_client.models.generate_content(
-                model="gemini-2.5-pro",
-                contents=contents,
-            )
-        
+            with imageio.get_writer(tmp_path, format='ffmpeg', mode='I',
+                                    fps=fps, codec='libx264') as writer:
+                for frame in frames:
+                    writer.append_data(frame)
+            with open(tmp_path, 'rb') as f:
+                return f.read()
+        finally:
+            os.remove(tmp_path)
+
+    def critic_episode_from_frontview_video(self, episode_path, task_definition):
+        video_bytes = self.extract_video(episode_path, cam_name='frontview', fps=10)
+        contents = [
+            "You are a critic for robotic episodes. Your task is to evaluate the if the robot completed a task successfully or not based on the task definition and video provided.",
+            "Make sure to respond with a json output with the following keys: 'success' (boolean), 'reason' (string).",
+            f"Task Definition: {task_definition}\n",
+            "Below is a video of the robot trying to complete the task.",
+            types.Part.from_bytes(
+                data=video_bytes,
+                mime_type='video/mp4',
+            ),
+        ]
+        response = self._generate(contents)
         return success.from_response(response.text)
     
 # critic = Critic()
-# print(critic.critic_episode_from_frontview("/act-data/PickPlaceCan/episodes/1.0.0-sim/episode_19.hdf5", "The robot should pick up the red can from the bin where it is initially located to a smaller bin on the right. There are multiple bins on the right. The correct bin has a silhouette of a can on it. In the last image, you should check that the can is visible in the correct bin."))
-#critic.extract_key_frames("/act-data/PickPlaceCan/episodes/1.0.0-sim/episode_19.hdf5")
+# print(critic.critic_episode_from_frontview_video("/media/vivekbagade/Elements/act-data/PickPlaceCan/episodes/5.1.0-sim/episode_1.hdf5", "The robot should pick up the red can from the bin where it is initially located to a smaller bin on the right. There are multiple bins on the right. The correct bin has a silhouette of a can on it. In the last image, you should check that the can is visible in the correct bin."))

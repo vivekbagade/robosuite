@@ -31,7 +31,7 @@ if __name__ == "__main__":
             try:
                 episode_path = os.path.join(episodes_dir, episode_file)
                 print(f"Evaluating episode: {episode_path}")
-                result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
+                result = critic.critic_episode_from_frontview_video(episode_path, args.task_definition)
                 print(f"Evaluation Result: {result}")
                 f.write(f"{episode_file}: {result.success} and {result.reason}\n")
                 if result.success:
