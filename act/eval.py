@@ -14,6 +14,7 @@ import sys
 from absl import flags
 
 from utils.utils import get_image
+from robosuite.recorder import grasp_state_from_command
 
 if __name__ == "__main__":
 
@@ -102,13 +103,13 @@ if __name__ == "__main__":
         # Reset the environment
     obs = env.reset()
     all_actions = None
+    # Latched commanded grasp state (0=open, 1=closed); gripper starts open.
+    grasp_state = np.array([0])
 
     for t in range(TRAIN_CONFIG['num_epochs']):
         qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
-        grasp = [0]
-        if 'grasp' in obs:
-            grasp = [obs['grasp']]
-        qpos = np.concatenate((qpos, grasp))
+        # Feed the latched grasp command (from the previous step) as proprioception.
+        qpos = np.concatenate((qpos, grasp_state))
         qpos = pre_process(qpos)
         qpos = torch.from_numpy(qpos).float().to(device).unsqueeze(0)
 
@@ -119,6 +120,9 @@ if __name__ == "__main__":
             cur_action = all_actions[:, t % query_frequency]
             cur_action = cur_action.squeeze(0).cpu().numpy()
             cur_action = post_process(cur_action)
+
+        # Latch the grasp command chosen this step for next step's proprioception.
+        grasp_state = grasp_state_from_command(cur_action[-1])
 
         # If action is none, then this a reset so we should break
         if cur_action is None:

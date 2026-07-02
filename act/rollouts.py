@@ -7,7 +7,7 @@ import numpy as np
 import robosuite as suite
 from robosuite import load_controller_config
 from robosuite.wrappers import VisualizationWrapper
-from robosuite.recorder import Recorder
+from robosuite.recorder import Recorder, grasp_state_from_command
 from policy import ACTPolicy
 import torch
 import os
@@ -40,6 +40,18 @@ def print_progress_bar(results):
     print(f"\r\033[KRollouts: [{bar}] {num_successes}/{num_rollouts} ({percentage:.1f}%)", end="", flush=True)
 
 
+def get_query_frequency(args, num_queries):
+    """Resolve how often to re-query the policy.
+
+    An explicit override takes precedence over everything else. Otherwise, with
+    temporal ensembling we re-query every step and blend overlapping chunks;
+    without it we run open-loop, consuming one full chunk before re-querying.
+    """
+    if args.query_frequency is not None:
+        return args.query_frequency
+    return 1 if args.temporal_agg else num_queries
+
+
 if __name__ == "__main__":
 
     flags.DEFINE_string("environment", "Lift", "Environment to use")
@@ -60,6 +72,7 @@ if __name__ == "__main__":
     flags.DEFINE_boolean("critic", True, "Whether to use the critic to evaluate the episode or not")
     flags.DEFINE_boolean("temporal_agg", False, "Whether to use temporal ensembling (query every step and average overlapping predictions)")
     flags.DEFINE_float("temporal_agg_k", 0.1, "Exponential decay for temporal ensembling weights (smaller = smoother, larger = more reactive)")
+    flags.DEFINE_integer("query_frequency", None, "Override for how often to re-query the policy. Takes precedence over temporal_agg-derived defaults")
     FLAGS = flags.FLAGS
     FLAGS(sys.argv)
     # Parse command line arguments
@@ -131,10 +144,7 @@ if __name__ == "__main__":
     num_queries = POLICY_CONFIG['num_queries']
     max_timesteps = 800
     action_dim = POLICY_CONFIG['action_dim']
-    # With temporal ensembling we re-query every step and blend overlapping chunks;
-    # otherwise we run open-loop, consuming one full chunk before re-querying.
-    query_frequency = 1 if args.temporal_agg else num_queries
-    query_frequency = 50
+    query_frequency = get_query_frequency(args, num_queries)
     critic = Critic()
     critic_record = CriticRecord(args.data_dir, args.environment, f'{args.version}-sim', args.task_definition)
 
@@ -142,6 +152,11 @@ if __name__ == "__main__":
     for i in range(args.num_episodes):
         current_ncon = 0
         obs = env.reset()
+        # Latched commanded grasp state (qpos/qvel index 7): 0=open, 1=closed.
+        # The gripper starts open and holds its last command until re-commanded,
+        # so we feed the previous step's command as proprioception and update it
+        # from the gripper command the policy chooses this step.
+        grasp_state = np.array([0])
         all_actions = None
         # all_time_actions[i, j] = action that the query made at time i proposes for absolute time j
         all_time_actions = None
@@ -153,10 +168,8 @@ if __name__ == "__main__":
                          256, 256, 800, args.environment, args.data_dir, f"{args.version}-sim")
         for t in range(max_timesteps):
             qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
-            grasp = [0]
-            if 'grasp' in obs:
-                grasp = [obs['grasp']]
-            qpos = np.concatenate((qpos, grasp))
+            # Feed the latched grasp command (from the previous step) as proprioception.
+            qpos = np.concatenate((qpos, grasp_state))
             qpos = pre_process(qpos)
             qpos = torch.from_numpy(qpos).float().to(device).unsqueeze(0)
 
@@ -185,8 +198,10 @@ if __name__ == "__main__":
                 cur_action = raw_action.squeeze(0).cpu().numpy()
                 cur_action = post_process(cur_action)
 
-            # record the current obs and corresponding action picked
-            obs['grasp'] = np.array([0]) if grasp[0] == -1 else np.array([1])
+            # Update the latched grasp state from the gripper command just chosen,
+            # then record it so qpos[7] matches the recorded (discretized) action command.
+            grasp_state = grasp_state_from_command(cur_action[-1])
+            obs['grasp'] = grasp_state
             key_frame = False
             # Check if the number of contacts has changed, if so, record a key frame
             if abs(current_ncon - env.sim.data.ncon) > 0 and t >= collision_init_time:
@@ -202,7 +217,9 @@ if __name__ == "__main__":
         # Save the episode data
         success = False
         if args.save:
-            episode_path = recorder.save()
+            # The rollout runs to max_timesteps regardless of when the task is solved,
+            # so trim the trailing frames where the action vector stops changing.
+            episode_path = recorder.save(trim_still_tail=True)
             if args.critic:
                 result = critic.critic_episode_from_frontview(episode_path, args.task_definition)
                 success = result.success

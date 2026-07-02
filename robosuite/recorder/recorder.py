@@ -5,6 +5,9 @@ import threading
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+from .real_len import estimate_real_len
+from .gripper import discretize_grasp_action
+
 
 class Recorder:
     QPOS      = '/observations/qpos'
@@ -32,12 +35,6 @@ class Recorder:
             d[self._cam_key(cam_name)] = []
         return d
 
-    @staticmethod
-    def _discretize_grasp(action):
-        a = action.copy()
-        a[-1] = 1.0 if a[-1] >= 0.1 else -1.0
-        return a
-
     def _record_obs(self, obs, key_frame):
         qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
         self.data_dict[self.QPOS].append(np.concatenate((qpos, obs['grasp'])))
@@ -48,14 +45,14 @@ class Recorder:
 
     def record(self, obs, action, key_frame) -> None:
         with self._lock:
-            self.data_dict[self.ACTION].append(self._discretize_grasp(action))
+            self.data_dict[self.ACTION].append(discretize_grasp_action(action))
             self._record_obs(obs, key_frame)
 
     def reset(self) -> None:
         with self._lock:
             self.data_dict = self._empty_data_dict()
 
-    def save(self) -> str:
+    def save(self, real_len=None, trim_still_tail=False) -> str:
         # Snapshot under the lock so record() can proceed immediately.
         with self._lock:
             snapshot = {k: list(v) for k, v in self.data_dict.items()}
@@ -67,6 +64,18 @@ class Recorder:
         if max_timesteps > self.episode_len:
             print('recording longer than expected, skipping save')
             return
+
+        # real_len marks how many leading frames are task-relevant. Callers that keep
+        # recording past task completion (e.g. rollouts that run to a fixed horizon)
+        # want the trailing, post-task frames treated as padding by the dataset:
+        # pass real_len explicitly, or trim_still_tail=True to infer it from the point
+        # where the action vector stops changing. Left unset, every recorded frame is real.
+        if real_len is None and trim_still_tail:
+            real_len = estimate_real_len(np.asarray(snapshot[self.ACTION]))
+        if real_len is None:
+            real_len = max_timesteps
+        else:
+            real_len = max(0, min(int(real_len), max_timesteps))
 
         # padding to episode_len
         pad_len = self.episode_len - max_timesteps
@@ -93,7 +102,7 @@ class Recorder:
 
         with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024 ** 2 * 2) as root:
             root.attrs['sim'] = True
-            root.attrs['real_len'] = max_timesteps
+            root.attrs['real_len'] = real_len
             obs_grp = root.create_group('observations')
             img_grp = obs_grp.create_group('images')
             for cam_name in self.cameras:

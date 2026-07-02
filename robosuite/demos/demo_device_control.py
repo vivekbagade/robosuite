@@ -104,7 +104,7 @@ from pynput import keyboard
 
 import robosuite as suite
 from robosuite import load_controller_config
-from robosuite.recorder import Recorder
+from robosuite.recorder import Recorder, grasp_state_from_command
 from robosuite.utils.input_utils import input2action
 from robosuite.wrappers import VisualizationWrapper
 
@@ -119,14 +119,16 @@ COLLISION_INIT_TIME = 100
 class EpisodeKeyboardControl:
     """Thread-safe keyboard state shared between the pynput listener and the main loop.
 
-    During an episode SPACE starts recording and ESC ends the episode. After an
-    episode ends, the loop waits on a Y / N / R keypress to save, discard, or retry.
+    During an episode SPACE starts recording, F randomly repositions the object(s),
+    and ESC ends the episode. After an episode ends, the loop waits on a Y / N / R
+    keypress to save, discard, or retry.
     """
 
     def __init__(self):
         self.record = False
         self.episode_done = False
         self.episode_active = False
+        self.reposition = False
         self._waiting_for_save = False
         self._save_decision = None
         self._save_event = threading.Event()
@@ -151,6 +153,8 @@ class EpisodeKeyboardControl:
                     self.record = True
                 elif key == keyboard.Key.esc and self.episode_active:
                     self.episode_done = True
+                elif getattr(key, "char", None) == "f" and self.episode_active:
+                    self.reposition = True
         except Exception as e:
             print(f"Keyboard exc {e}")
 
@@ -159,6 +163,7 @@ class EpisodeKeyboardControl:
         with self._lock:
             self.record = False
             self.episode_done = False
+            self.reposition = False
 
     def set_active(self, active):
         with self._lock:
@@ -171,6 +176,14 @@ class EpisodeKeyboardControl:
     def should_record(self):
         with self._lock:
             return self.record
+
+    def consume_reposition(self):
+        """Return True once if F was pressed since the last check, then clear it."""
+        with self._lock:
+            if self.reposition:
+                self.reposition = False
+                return True
+            return False
 
     def wait_for_save_decision(self):
         """Block until the user presses Y / N / R; returns True / False / 'r'."""
@@ -276,6 +289,24 @@ def pad_action(action, action_dim, arm):
     return action
 
 
+def reposition_objects(env):
+    """Randomly re-place the environment's collision object(s), e.g. the can.
+
+    Draws fresh poses from the environment's placement initializer and writes
+    them to each object's free joint, then forwards physics so the new poses
+    take effect. Returns a refreshed observation.
+    """
+    placements = env.placement_initializer.sample()
+    for obj_pos, obj_quat, obj in placements.values():
+        if "visual" in obj.name.lower():
+            env.sim.model.body_pos[env.obj_body_id[obj.name]] = obj_pos
+            env.sim.model.body_quat[env.obj_body_id[obj.name]] = obj_quat
+        else:
+            env.sim.data.set_joint_qpos(obj.joints[0], np.concatenate([np.array(obj_pos), np.array(obj_quat)]))
+    env.sim.forward()
+    return env._get_observations()
+
+
 def run_episode(env, device, recorder, controls, args, obs, cam_id, num_cam):
     """Run one teleop episode until the user ends it.
 
@@ -292,6 +323,14 @@ def run_episode(env, device, recorder, controls, args, obs, cam_id, num_cam):
     controls.set_active(True)
 
     while not controls.is_done():
+        # F randomly repositions the object(s) mid-episode; refresh obs and the
+        # contact baseline so the move isn't logged as a spurious key frame.
+        if controls.consume_reposition():
+            obs = reposition_objects(env)
+            current_ncon = env.sim.data.ncon
+            print("Repositioned object(s).")
+            env.render()
+
         # Active robot may change mid-episode via --switch-on-grasp.
         active_robot = env.robots[0] if args.config == "bimanual" else env.robots[args.arm == "left"]
 
@@ -318,7 +357,7 @@ def run_episode(env, device, recorder, controls, args, obs, cam_id, num_cam):
 
         # Record the current obs paired with the chosen action, flagging a key
         # frame whenever the contact count changes after the scene has settled.
-        obs["grasp"] = np.array([0]) if grasp == -1 else np.array([1])
+        obs["grasp"] = grasp_state_from_command(grasp)
         key_frame = abs(current_ncon - env.sim.data.ncon) > 0 and cur_episode_len >= COLLISION_INIT_TIME
         if key_frame:
             current_ncon = env.sim.data.ncon
@@ -334,7 +373,7 @@ def run_episode(env, device, recorder, controls, args, obs, cam_id, num_cam):
 
 def announce_attempt(attempt, saved_count, total):
     print(f"\n=== Attempt {attempt} | Saved {saved_count} / {total} ===")
-    print("Press SPACE to start recording, ESC to end episode.")
+    print("Press SPACE to start recording, F to randomly reposition object(s), ESC to end episode.")
 
 
 def collect_episodes(env, device, recorder, controls, args):

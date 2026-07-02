@@ -81,7 +81,7 @@ TRAIN_CONFIG = {
 # finetuning_train_config
 FINETUNING_TRAIN_CONFIG = {
     'seed': 42,
-    'num_epochs': 300,
+    'num_epochs': 1000,
     'batch_size_val': 8,
     'batch_size_train': 8,
     'eval_ckpt_name': 'policy_last.ckpt',
