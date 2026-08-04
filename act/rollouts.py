@@ -2,7 +2,13 @@
 
 """
 import pickle
-from config.config import POLICY_CONFIG, TRAIN_CONFIG, device # must import first
+from config.config import (  # must import first
+    POLICY_CONFIG,
+    RECORDING_CAMERA_NAMES,
+    TRAIN_CONFIG,
+    WAYPOINT_CAMERA_NAMES,
+    device,
+)
 import numpy as np
 import robosuite as suite
 from robosuite import load_controller_config
@@ -112,7 +118,7 @@ if __name__ == "__main__":
         has_renderer=True,
         has_offscreen_renderer=True,
         render_camera="agentview",
-        camera_names=["robot0_eye_in_hand", "frontview", "birdview"],
+        camera_names=RECORDING_CAMERA_NAMES,
         ignore_done=True,
         use_camera_obs=True,
         reward_shaping=True,
@@ -164,8 +170,13 @@ if __name__ == "__main__":
             all_time_actions = torch.zeros(
                 [max_timesteps, max_timesteps + num_queries, action_dim]
             ).to(device)
-        recorder = Recorder(["robot0_eye_in_hand", "frontview", "birdview"],
-                         256, 256, 800, args.environment, args.data_dir, f"{args.version}-sim")
+        # Fixed cameras whose static pose lets us project eef_pos into waypoints
+        # offline (exclude the wrist camera robot0_eye_in_hand, which moves).
+        camera_matrices = Recorder.compute_camera_matrices(
+            env.sim, WAYPOINT_CAMERA_NAMES, 256, 256)
+        recorder = Recorder(RECORDING_CAMERA_NAMES,
+                         256, 256, 800, args.environment, args.data_dir, f"{args.version}-sim",
+                         camera_matrices=camera_matrices)
         for t in range(max_timesteps):
             qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
             # Feed the latched grasp command (from the previous step) as proprioception.

@@ -70,5 +70,11 @@
     <camera mode="fixed" name="birdview" pos="-0.2 0 3.0" quat="0.7071 0 0 0.7071"/>
     <!-- agent view -->
     <camera mode="fixed" name="agentview" pos="1.0 0 1.75" quat="0.653 0.271 0.271 0.653"/>
+    <!-- side view: looks along -y at the bins, i.e. orthogonal to frontview's
+         optical axis and off birdview's, so it observes the x/z axes that the
+         other fixed cameras see only once. Aimed at (0.1, 0, 0.9) (the bin pair's
+         centre, just above the rims) from 1.5m out at ~26 degrees elevation, the
+         same standoff frontview uses. -->
+    <camera mode="fixed" name="sideview" pos="0.1 1.35 1.55" quat="0 0 0.53207 0.84670"/>
   </worldbody>
 </mujoco>

@@ -15,6 +15,14 @@ class ACTTrainer:
         self.base_weights_dir = base_weights_dir
         self.checkpoint_dir = checkpoint_dir
 
+    def make_policy(self):
+        """Construct the policy to train.
+
+        Extracted so variants (see ``train_waypoint.WaypointACTTrainer``) can
+        swap the policy class without duplicating ``train_bc``.
+        """
+        return ACTPolicy(self.policy_config)
+
     def make_optimizer(self, policy_class, policy):
         if policy_class in ['ACT', 'CNNMLP']:
             optimizer = policy.configure_optimizers()
@@ -70,7 +78,7 @@ class ACTTrainer:
             print(f"Checkpoint path: {ckpt_path}")
             if not os.path.exists(ckpt_path):
                 raise FileNotFoundError(f"Checkpoint file {ckpt_path} does not exist. Please check the path.")
-        policy = ACTPolicy(self.policy_config)
+        policy = self.make_policy()
         if ckpt_path is not None:
             loading_status = policy.load_state_dict(torch.load(ckpt_path, map_location=torch.device(device)))
             print(f"Loading status: {loading_status}")

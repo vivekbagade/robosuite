@@ -2,6 +2,8 @@ import h5py
 import numpy as np
 import os
 import threading
+
+import robosuite.macros as macros
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -13,13 +15,30 @@ class Recorder:
     QPOS      = '/observations/qpos'
     QVEL      = '/observations/qvel'
     KEY_FRAME = '/observations/key_frame'
+    EEF_POS   = '/observations/eef_pos'
     ACTION    = '/action'
 
     @staticmethod
     def _cam_key(cam_name: str) -> str:
         return f'/observations/images/{cam_name}'
 
-    def __init__(self, cameras, cam_height, cam_width, episode_len, task, data_dir, version) -> None:
+    @staticmethod
+    def compute_camera_matrices(sim, cameras, height, width) -> dict:
+        """World->pixel 4x4 transform for each (fixed) camera.
+
+        Used to project the recorded 3D ``eef_pos`` into image-plane waypoints
+        offline. Only valid for cameras with a static pose (e.g. frontview,
+        birdview); wrist cameras like robot0_eye_in_hand move every step and
+        must NOT be passed here.
+        """
+        from robosuite.utils import camera_utils
+        return {
+            cam: camera_utils.get_camera_transform_matrix(sim, cam, height, width)
+            for cam in cameras
+        }
+
+    def __init__(self, cameras, cam_height, cam_width, episode_len, task, data_dir,
+                 version, camera_matrices=None) -> None:
         self.episodes_dir = f"{data_dir}/{task}/episodes/{version}"
         self._lock = threading.Lock()
         self.cameras = cameras
@@ -27,10 +46,16 @@ class Recorder:
         self.cam_height = cam_height
         self.cam_width = cam_width
         self.episode_len = episode_len
+        # {camera: 4x4 world->pixel matrix} for the fixed waypoint cameras.
+        self.camera_matrices = dict(camera_matrices) if camera_matrices else {}
         self.data_dict = self._empty_data_dict()
 
+    def set_camera_matrices(self, camera_matrices) -> None:
+        """Set the fixed-camera projection matrices stored alongside eef_pos."""
+        self.camera_matrices = dict(camera_matrices) if camera_matrices else {}
+
     def _empty_data_dict(self) -> dict:
-        d = {self.QPOS: [], self.QVEL: [], self.KEY_FRAME: [], self.ACTION: []}
+        d = {self.QPOS: [], self.QVEL: [], self.KEY_FRAME: [], self.EEF_POS: [], self.ACTION: []}
         for cam_name in self.cameras:
             d[self._cam_key(cam_name)] = []
         return d
@@ -39,6 +64,10 @@ class Recorder:
         qpos = np.arctan2(obs['robot0_joint_pos_sin'], obs['robot0_joint_pos_cos'])
         self.data_dict[self.QPOS].append(np.concatenate((qpos, obs['grasp'])))
         self.data_dict[self.QVEL].append(np.concatenate((obs['robot0_joint_vel'], obs['grasp'])))
+        # 3D end-effector world position; projected into image-plane waypoints
+        # offline via camera_matrices. Kept in world frame so any fixed camera
+        # can be re-projected later.
+        self.data_dict[self.EEF_POS].append(np.asarray(obs['robot0_eef_pos'], dtype=np.float32))
         for cam_name in self.cameras:
             self.data_dict[self._cam_key(cam_name)].append(obs[cam_name + "_image"])
         self.data_dict[self.KEY_FRAME].append(key_frame)
@@ -81,6 +110,7 @@ class Recorder:
         pad_len = self.episode_len - max_timesteps
         snapshot[self.QPOS] = np.pad(snapshot[self.QPOS], ((0, pad_len), (0, 0)), mode='constant')
         snapshot[self.QVEL] = np.pad(snapshot[self.QVEL], ((0, pad_len), (0, 0)), mode='constant')
+        snapshot[self.EEF_POS] = np.pad(snapshot[self.EEF_POS], ((0, pad_len), (0, 0)), mode='constant')
         action_full_pad = np.full((pad_len, len(snapshot[self.ACTION][0])), 0.0)
         snapshot[self.ACTION] = np.concatenate((snapshot[self.ACTION], action_full_pad))
         for cam_name in self.cameras:
@@ -103,6 +133,10 @@ class Recorder:
         with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024 ** 2 * 2) as root:
             root.attrs['sim'] = True
             root.attrs['real_len'] = real_len
+            # Orientation of the stored frames, so readers (and
+            # backfill_image_convention.py) can tell migrated recordings from
+            # ones made under the old bottom-left-origin OpenGL default.
+            root.attrs['image_convention'] = macros.IMAGE_CONVENTION
             obs_grp = root.create_group('observations')
             img_grp = obs_grp.create_group('images')
             for cam_name in self.cameras:
@@ -110,11 +144,21 @@ class Recorder:
                                            dtype='uint8', chunks=(1, self.cam_height, self.cam_width, 3))
             _ = obs_grp.create_dataset('qpos', (self.episode_len, 8))
             _ = obs_grp.create_dataset('qvel', (self.episode_len, 8))
+            _ = obs_grp.create_dataset('eef_pos', (self.episode_len, 3))
             _ = root.create_dataset('action', (self.episode_len, len(snapshot[self.ACTION][0])))
             _ = obs_grp.create_dataset('key_frame', (self.episode_len,), dtype='bool')
 
             for name, array in snapshot.items():
                 root[name][...] = array
+
+            # Fixed-camera world->pixel matrices for projecting eef_pos into
+            # image-plane waypoints offline (no sim replay needed).
+            if self.camera_matrices:
+                cam_grp = root.create_group('camera_matrices')
+                cam_grp.attrs['cam_height'] = self.cam_height
+                cam_grp.attrs['cam_width'] = self.cam_width
+                for cam_name, matrix in self.camera_matrices.items():
+                    cam_grp.create_dataset(cam_name, data=np.asarray(matrix, dtype=np.float64))
         return dataset_path + '.hdf5'
 
 class RobosuiteRecorder:

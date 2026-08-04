@@ -25,7 +25,12 @@ CACHE_NUMBA = True
 # applications assume an OpenCV coordinate frame convention. For consistency, you can set the image convention
 # here; this will assure that any rendered frames will match the associated convention.
 # See the figure at the bottom of https://amytabb.com/ts/2019_06_28/ for an informative overview.
-IMAGE_CONVENTION = "opengl"  # Options are {"opengl", "opencv"}
+#
+# We default to "opencv" (top-left origin) so camera observations come out upright everywhere -- recording,
+# rollouts and eval alike -- and match the top-left-origin pixel coordinates that
+# camera_utils.get_camera_transform_matrix projects into. Do not change this without re-recording: episodes
+# collected under "opengl" are stored upside down relative to everything downstream.
+IMAGE_CONVENTION = "opencv"  # Options are {"opengl", "opencv"}
 
 # Image concatenation
 # In general, observations are concatenated together by modality. However, image observations are expensive memory-wise,

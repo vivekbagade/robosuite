@@ -258,7 +258,9 @@ if __name__ == "__main__":
             )
 
             # read camera observation
-            im = np.flip(obs[args.camera + "_image"][..., ::-1], 0).astype(np.uint8)
+            # [..., ::-1] is RGB -> BGR for cv2; no vertical flip needed since
+            # observations already use the OpenCV convention (see macros.py).
+            im = obs[args.camera + "_image"][..., ::-1].astype(np.uint8)
 
             cv2.imshow("offscreen render", im)
             cv2.waitKey(1)

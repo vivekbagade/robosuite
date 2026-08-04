@@ -6,6 +6,7 @@ from PIL import Image
 import imageio
 import io
 import h5py
+import numpy as np
 from google import genai
 from google.genai import types
 from google.genai import errors
@@ -51,7 +52,7 @@ class Critic:
     def _generate(self, contents):
         try:
             return self.gem_client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-3.6-flash",
                 contents=contents,
                 config=self.gen_config,
             )
@@ -59,7 +60,7 @@ class Critic:
             # retry one more time in case of server error
             time.sleep(5)
             return self.gem_client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-3.6-flash",
                 contents=contents,
                 config=self.gen_config,
             )
@@ -90,9 +91,6 @@ class Critic:
             for cam_name in root[f'/observations/images/'].keys():
                 image_dict[cam_name] = root[f'/observations/images/{cam_name}'][()]
                 final_images[cam_name] = [image_dict[cam_name][i] for i in range(len(key_frames)) if key_frames[i] == True]
-                # if cam_name == 'frontview':
-                #     # Rotate the image 180 degrees
-                #     final_images[cam_name] = [img[::-1, ::-1, :] for img in final_images[cam_name]]
         return final_images
     
     def critic_episode_from_frontview(self, episode_path, task_definition):
@@ -104,10 +102,16 @@ class Critic:
             raise ValueError("No key frames found in the episode.")
 
         contents=[
-            "You are a critic for robotic episodes. Your task is to evaluate the if the robot completed a task successfully or not based on the task definition and images provided.",
-            "The most important part of your task is to make sure to respond with a json output with the following keys: 'success' (boolean), 'reason' (string).",
+            "You are a critic for robotic episodes. Your task is to evaluate if the robot completed a task successfully based on the task definition and images provided.",
+            "CRITICAL SUCCESS CRITERIA:",
+            "1. The robot must pick up the red can from its initial location",
+            "2. The can must be placed in the RIGHT BIN (front-right from this frontview camera)",
+            "3. The RIGHT BIN is identified by: it has a silhouette/shadow of a can printed on its front face",
+            "4. In the FINAL IMAGE, the red can must be clearly visible INSIDE the right bin",
+            "5. The can must not be teetering on the edge - it should be stably placed inside",
+            "Respond with ONLY a json object with keys: 'success' (boolean), 'reason' (string explaining what you observed).",
             f"Task Definition: {task_definition}\n",
-            f"Below are {len(images)} images in a chronological order representing the robot trying to complete the task.",
+            f"Below are {len(images)} images in chronological order. Focus especially on the FINAL image to verify the can is in the correct right bin.",
         ]
         for i in range(len(images)):
             img = Image.fromarray(images[i], 'RGB')
@@ -121,14 +125,30 @@ class Critic:
         response = self._generate(contents)
         return success.from_response(response.text)
 
-    # Encode all frames from one camera in an episode file into a compressed
-    # H.264 mp4 and return the raw video bytes.
+    # Number of frames actually recorded, as opposed to the episode_len the file
+    # is padded out to. The recorder pads with zeros and a real action is never
+    # zero on every dimension, so the last non-zero action marks the end of the
+    # footage. Files without an action dataset fall back to ``default``.
+    @staticmethod
+    def _recorded_len(root, default):
+        if 'action' not in root:
+            return default
+        nonzero = np.flatnonzero(np.abs(root['action'][()]).sum(axis=1))
+        return int(nonzero[-1]) + 1 if len(nonzero) else default
+
+    # Encode every recorded frame from one camera in an episode file into a
+    # compressed H.264 mp4 and return the raw video bytes.
+    #
+    # The cut is the recorded length, deliberately not the file's real_len:
+    # real_len drops the trailing run of unchanging actions, which is exactly the
+    # hold window the rollouts append so the scene can settle -- the gripper
+    # opening and the object dropping both land inside it. The dataset wants that
+    # tail treated as padding; the Critic has to see it, or it rules on a video
+    # that cuts on the frame the release is commanded.
     def extract_video(self, episode_path, cam_name='frontview', fps=20):
         with h5py.File(episode_path, 'r') as root:
             frames = root[f'/observations/images/{cam_name}'][()]
-        if cam_name == 'frontview':
-            # frontview frames are recorded upside down, flip vertically
-            frames = frames[:, ::-1, :, :]
+            frames = frames[:self._recorded_len(root, len(frames))]
         fd, tmp_path = tempfile.mkstemp(suffix='.mp4')
         os.close(fd)
         try:
@@ -141,13 +161,30 @@ class Critic:
         finally:
             os.remove(tmp_path)
 
-    def critic_episode_from_frontview_video(self, episode_path, task_definition):
+    def critic_episode_from_frontview_video(self, episode_path, task_definition, goal_image_path='/media/vivekbagade/Elements/act-data/PickPlaceCan/goal_image.png'):
         video_bytes = self.extract_video(episode_path, cam_name='frontview', fps=10)
+
+        # Read goal image
+        with open(goal_image_path, 'rb') as f:
+            goal_bytes = f.read()
+
         contents = [
-            "You are a critic for robotic episodes. Your task is to evaluate the if the robot completed a task successfully or not based on the task definition and video provided.",
-            "Make sure to respond with a json output with the following keys: 'success' (boolean), 'reason' (string).",
+            "You are a critic for robotic episodes. Your task is to evaluate if the robot completed a task successfully based on the task definition, a goal image, and a video provided.",
+            "CRITICAL SUCCESS CRITERIA:",
+            "1. The robot must pick up the red can from its initial location",
+            "2. The can must be placed in the RIGHT BIN (front-right bin from this frontview camera perspective)",
+            "3. The RIGHT BIN is identified by: it has a silhouette/shadow of a can printed on its front face",
+            "4. At the END of the video, the red can must be clearly visible INSIDE the right bin, matching the goal image",
+            "5. The can must not be teetering on the edge - it should be stably and clearly placed inside the correct bin",
+            "6. Watch the entire video carefully - pay special attention to the final frames showing the placement",
+            "Respond with ONLY a json object with keys: 'success' (boolean), 'reason' (string explaining your observation of the final placement).",
             f"Task Definition: {task_definition}\n",
-            "Below is a video of the robot trying to complete the task.",
+            "GOAL IMAGE (desired final state - red can placed in the right bin):",
+            types.Part.from_bytes(
+                data=goal_bytes,
+                mime_type='image/png',
+            ),
+            "\nVIDEO of the robot attempting the task (focus on final frames to verify placement matches the goal):",
             types.Part.from_bytes(
                 data=video_bytes,
                 mime_type='video/mp4',

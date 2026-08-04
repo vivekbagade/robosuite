@@ -104,7 +104,7 @@ if __name__ == "__main__":
         action = 0.5 * np.random.uniform(low, high)
         obs, reward, done, _ = env.step(action)
 
-        video_img = obs[f"{camera}_segmentation_{segmentation_level}"].squeeze(-1)[::-1]
+        video_img = obs[f"{camera}_segmentation_{segmentation_level}"].squeeze(-1)
         np.savetxt("/tmp/seg_{}.txt".format(i), video_img, fmt="%.2f")
         video_img = segmentation_to_rgb(video_img, args.random_colors)
         video_writer.append_data(video_img)

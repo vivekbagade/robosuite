@@ -2,7 +2,7 @@
 
 """
 import pickle
-from config.config import POLICY_CONFIG, TRAIN_CONFIG, device # must import first
+from config.config import ACT_CAMERA_NAMES, POLICY_CONFIG, TRAIN_CONFIG, device # must import first
 import numpy as np
 import robosuite as suite
 from robosuite import load_controller_config
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         has_renderer=True,
         has_offscreen_renderer=True,
         render_camera="agentview",
-        camera_names=["robot0_eye_in_hand", "frontview", "birdview"],
+        camera_names=ACT_CAMERA_NAMES,
         ignore_done=True,
         use_camera_obs=True,
         reward_shaping=True,

@@ -109,7 +109,10 @@ from robosuite.utils.input_utils import input2action
 from robosuite.wrappers import VisualizationWrapper
 
 # Cameras recorded for each episode (also used as the env's camera_names).
-CAMERA_NAMES = ["robot0_eye_in_hand", "frontview", "birdview"]
+# Everything but the wrist camera is a fixed arena camera and gets a world->pixel
+# matrix stored alongside the recording (see main), so keep this in sync with
+# act/config/config.py's RECORDING_CAMERA_NAMES.
+CAMERA_NAMES = ["robot0_eye_in_hand", "frontview", "birdview", "sideview"]
 
 # Ignore contact-change key frames during this many initial steps (avoids
 # spurious key frames while the scene settles).
@@ -431,7 +434,12 @@ def main():
     np.set_printoptions(formatter={"float": lambda x: "{0:0.3f}".format(x)})
 
     device = make_device(args, env)
-    recorder = Recorder(CAMERA_NAMES, 256, 256, 800, args.environment, args.data_dir, args.version)
+    # Fixed cameras whose static pose lets us project eef_pos into waypoints
+    # offline (exclude the wrist camera robot0_eye_in_hand, which moves).
+    waypoint_cameras = [c for c in CAMERA_NAMES if c != "robot0_eye_in_hand"]
+    camera_matrices = Recorder.compute_camera_matrices(env.sim, waypoint_cameras, 256, 256)
+    recorder = Recorder(CAMERA_NAMES, 256, 256, 800, args.environment, args.data_dir,
+                        args.version, camera_matrices=camera_matrices)
 
     def shutdown(exit_code=0):
         # Free the GL/EGL render contexts while EGL is still initialized.
